@@ -14,6 +14,10 @@ targets:
       - path: hurr1c4ne
         excludes:
           - Info.plist
+          - Bootstrap/**
+
+    resources:
+      - path: hurr1c4ne/Bootstrap
 
     info:
       path: hurr1c4ne/Info.plist
