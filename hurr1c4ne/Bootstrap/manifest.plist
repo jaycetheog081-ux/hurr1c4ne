@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC
+  "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>BootstrapName</key>
+    <string>Procursus</string>
+
+    <key>BootstrapVersion</key>
+    <string>unconfigured</string>
+
+    <key>ProjectName</key>
+    <string>hurr1c4ne</string>
+
+    <key>MinimumTargetIOS</key>
+    <string>26.0</string>
+
+    <key>MaximumTargetIOS</key>
+    <string>27.0.1</string>
+
+    <key>Architecture</key>
+    <string>arm64</string>
+
+    <key>InstallationState</key>
+    <string>NotInstalled</string>
+</dict>
+</plist>
