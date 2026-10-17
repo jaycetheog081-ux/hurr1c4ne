@@ -12,7 +12,13 @@
 @property (nonatomic, strong) UILabel *compatibilityLabel;
 @property (nonatomic, strong) UILabel *statusLabel;
 @property (nonatomic, strong) UIButton *patchButton;
-@property (nonatomic, strong) UIActivityIndicatorView *activityIndicator;
+
+@property (nonatomic, strong) UIView *contentContainer;
+@property (nonatomic, strong) UIView *tabBar;
+@property (nonatomic, strong) NSMutableArray<UIButton *> *tabButtons;
+@property (nonatomic, strong) UIScrollView *homeScrollView;
+
+@property (nonatomic, assign) NSInteger selectedTab;
 
 @end
 
@@ -48,16 +54,15 @@
     self.view.backgroundColor = [self backgroundColor];
     self.view.tintColor = [self greenColor];
 
-    [self buildInterface];
+    self.tabButtons = [NSMutableArray array];
+
+    [self buildLayout];
     [self refreshDeviceInfo];
+    [self selectTab:0];
 }
 
 - (UIStatusBarStyle)preferredStatusBarStyle {
     return UIStatusBarStyleLightContent;
-}
-
-- (BOOL)prefersHomeIndicatorAutoHidden {
-    return NO;
 }
 
 #pragma mark - UI Helpers
@@ -66,12 +71,14 @@
                       size:(CGFloat)size
                      color:(UIColor *)color
                     weight:(UIFontWeight)weight {
+
     UILabel *label = [[UILabel alloc] init];
     label.translatesAutoresizingMaskIntoConstraints = NO;
     label.text = text;
     label.font = [UIFont systemFontOfSize:size weight:weight];
     label.textColor = color;
     label.numberOfLines = 0;
+
     return label;
 }
 
@@ -79,11 +86,11 @@
     UIView *view = [[UIView alloc] init];
     view.translatesAutoresizingMaskIntoConstraints = NO;
     view.backgroundColor = [self cardColor];
-    view.layer.cornerRadius = 22.0;
+    view.layer.cornerRadius = 20.0;
     view.layer.borderWidth = 1.0;
     view.layer.borderColor =
-        [UIColor colorWithRed:0.15 green:0.20 blue:0.34 alpha:1.0].CGColor;
-    view.clipsToBounds = YES;
+        [UIColor colorWithWhite:1.0 alpha:0.08].CGColor;
+
     return view;
 }
 
@@ -94,201 +101,328 @@
     stack.alignment = UIStackViewAlignmentFill;
     stack.distribution = UIStackViewDistributionFill;
     stack.spacing = spacing;
+
     return stack;
 }
 
-- (UIView *)sectionHeading:(NSString *)symbol
-                     title:(NSString *)title {
-    UIStackView *heading = [[UIStackView alloc] init];
-    heading.translatesAutoresizingMaskIntoConstraints = NO;
-    heading.axis = UILayoutConstraintAxisHorizontal;
-    heading.alignment = UIStackViewAlignmentCenter;
-    heading.spacing = 12;
-
-    UILabel *icon = [self labelWithText:symbol
-                                   size:23
-                                  color:[self greenColor]
-                                 weight:UIFontWeightSemibold];
-
-    UILabel *name = [self labelWithText:title.uppercaseString
-                                   size:13
-                                  color:[self mutedColor]
-                                 weight:UIFontWeightBold];
-
-    // UILabel has no letterSpacing property.
-    // NSKernAttributeName applies letter spacing correctly.
-    NSMutableAttributedString *styledName =
-        [[NSMutableAttributedString alloc]
-            initWithString:title.uppercaseString];
-
-    [styledName addAttribute:NSKernAttributeName
-                       value:@1.2
-                       range:NSMakeRange(0, styledName.length)];
-
-    name.attributedText = styledName;
-
-    [heading addArrangedSubview:icon];
-    [heading addArrangedSubview:name];
-
-    return heading;
-}
-
-- (void)addCard:(UIView *)card
-          toView:(UIView *)parent
-       topAnchor:(NSLayoutYAxisAnchor *)topAnchor
-         spacing:(CGFloat)spacing {
-    [parent addSubview:card];
+- (void)pinView:(UIView *)child
+         inside:(UIView *)parent
+         inset:(CGFloat)inset {
 
     [NSLayoutConstraint activateConstraints:@[
-        [card.topAnchor constraintEqualToAnchor:topAnchor constant:spacing],
-        [card.leadingAnchor constraintEqualToAnchor:parent.leadingAnchor],
-        [card.trailingAnchor constraintEqualToAnchor:parent.trailingAnchor]
+        [child.topAnchor constraintEqualToAnchor:parent.topAnchor
+                                        constant:inset],
+        [child.leadingAnchor constraintEqualToAnchor:parent.leadingAnchor
+                                            constant:inset],
+        [child.trailingAnchor constraintEqualToAnchor:parent.trailingAnchor
+                                             constant:-inset],
+        [child.bottomAnchor constraintEqualToAnchor:parent.bottomAnchor
+                                           constant:-inset]
     ]];
 }
 
-#pragma mark - Build Interface
+#pragma mark - Main Layout
 
-- (void)buildInterface {
-    UIScrollView *scrollView = [[UIScrollView alloc] init];
-    scrollView.translatesAutoresizingMaskIntoConstraints = NO;
-    scrollView.alwaysBounceVertical = YES;
-    scrollView.showsVerticalScrollIndicator = NO;
-    scrollView.backgroundColor = [self backgroundColor];
+- (void)buildLayout {
+    self.contentContainer = [[UIView alloc] init];
+    self.contentContainer.translatesAutoresizingMaskIntoConstraints = NO;
+    self.contentContainer.backgroundColor = [self backgroundColor];
 
-    [self.view addSubview:scrollView];
+    [self.view addSubview:self.contentContainer];
+
+    self.tabBar = [self buildBottomBar];
+    [self.view addSubview:self.tabBar];
+
+    UILayoutGuide *safe = self.view.safeAreaLayoutGuide;
+
+    [NSLayoutConstraint activateConstraints:@[
+        [self.contentContainer.topAnchor constraintEqualToAnchor:safe.topAnchor],
+        [self.contentContainer.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
+        [self.contentContainer.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
+        [self.contentContainer.bottomAnchor constraintEqualToAnchor:self.tabBar.topAnchor],
+
+        [self.tabBar.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
+        [self.tabBar.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
+        [self.tabBar.bottomAnchor constraintEqualToAnchor:self.view.bottomAnchor],
+        [self.tabBar.heightAnchor constraintEqualToConstant:84]
+    ]];
+}
+
+#pragma mark - Bottom Navigation
+
+- (UIView *)buildBottomBar {
+    UIView *bar = [[UIView alloc] init];
+    bar.translatesAutoresizingMaskIntoConstraints = NO;
+    bar.backgroundColor =
+        [UIColor colorWithRed:0.035 green:0.045 blue:0.080 alpha:1.0];
+
+    bar.layer.borderWidth = 1.0;
+    bar.layer.borderColor =
+        [UIColor colorWithWhite:1.0 alpha:0.08].CGColor;
+
+    UIStackView *tabs = [[UIStackView alloc] init];
+    tabs.translatesAutoresizingMaskIntoConstraints = NO;
+    tabs.axis = UILayoutConstraintAxisHorizontal;
+    tabs.alignment = UIStackViewAlignmentFill;
+    tabs.distribution = UIStackViewDistributionFillEqually;
+    tabs.spacing = 0;
+
+    NSArray<NSString *> *symbols = @[@"⌂", @"⚙", @"≡", @"ⓘ"];
+    NSArray<NSString *> *titles = @[@"Home", @"Settings", @"Logs", @"About"];
+
+    for (NSInteger index = 0; index < titles.count; index++) {
+        UIButton *button = [UIButton buttonWithType:UIButtonTypeCustom];
+        button.translatesAutoresizingMaskIntoConstraints = NO;
+        button.tag = index;
+        button.backgroundColor = UIColor.clearColor;
+        button.accessibilityLabel = titles[index];
+        button.accessibilityHint =
+            [NSString stringWithFormat:@"Open the %@ tab", titles[index]];
+
+        UIStackView *contents = [[UIStackView alloc] init];
+        contents.translatesAutoresizingMaskIntoConstraints = NO;
+        contents.axis = UILayoutConstraintAxisVertical;
+        contents.alignment = UIStackViewAlignmentCenter;
+        contents.distribution = UIStackViewDistributionFill;
+        contents.spacing = 3;
+        contents.userInteractionEnabled = NO;
+
+        UILabel *icon = [self labelWithText:symbols[index]
+                                       size:23
+                                      color:[self mutedColor]
+                                     weight:UIFontWeightSemibold];
+
+        UILabel *title = [self labelWithText:titles[index]
+                                        size:10
+                                       color:[self mutedColor]
+                                      weight:UIFontWeightMedium];
+
+        title.textAlignment = NSTextAlignmentCenter;
+
+        [contents addArrangedSubview:icon];
+        [contents addArrangedSubview:title];
+
+        [button addSubview:contents];
+
+        [NSLayoutConstraint activateConstraints:@[
+            [contents.centerXAnchor constraintEqualToAnchor:button.centerXAnchor],
+            [contents.centerYAnchor constraintEqualToAnchor:button.centerYAnchor],
+            [contents.leadingAnchor constraintGreaterThanOrEqualToAnchor:button.leadingAnchor constant:2],
+            [contents.trailingAnchor constraintLessThanOrEqualToAnchor:button.trailingAnchor constant:-2]
+        ]];
+
+        [button addTarget:self
+                   action:@selector(tabButtonTapped:)
+         forControlEvents:UIControlEventTouchUpInside];
+
+        [tabs addArrangedSubview:button];
+        [self.tabButtons addObject:button];
+    }
+
+    [bar addSubview:tabs];
+
+    [NSLayoutConstraint activateConstraints:@[
+        [tabs.leadingAnchor constraintEqualToAnchor:bar.leadingAnchor constant:8],
+        [tabs.trailingAnchor constraintEqualToAnchor:bar.trailingAnchor constant:-8],
+        [tabs.topAnchor constraintEqualToAnchor:bar.topAnchor constant:4],
+        [tabs.bottomAnchor constraintEqualToAnchor:bar.safeAreaLayoutGuide.bottomAnchor constant:-3]
+    ]];
+
+    return bar;
+}
+
+- (void)tabButtonTapped:(UIButton *)sender {
+    [self selectTab:sender.tag];
+}
+
+- (void)selectTab:(NSInteger)index {
+    if (index < 0 || index >= 4) {
+        return;
+    }
+
+    self.selectedTab = index;
+
+    NSArray<NSString *> *symbols = @[@"⌂", @"⚙", @"≡", @"ⓘ"];
+    NSArray<NSString *> *titles = @[@"Home", @"Settings", @"Logs", @"About"];
+
+    for (NSInteger i = 0; i < self.tabButtons.count; i++) {
+        UIButton *button = self.tabButtons[i];
+        BOOL selected = (i == index);
+
+        UIColor *color = selected
+            ? [self greenColor]
+            : [self mutedColor];
+
+        button.accessibilityTraits = selected
+            ? UIAccessibilityTraitButton | UIAccessibilityTraitSelected
+            : UIAccessibilityTraitButton;
+
+        for (UIView *subview in button.subviews) {
+            if (![subview isKindOfClass:[UIStackView class]]) {
+                continue;
+            }
+
+            UIStackView *stack = (UIStackView *)subview;
+
+            if (stack.arrangedSubviews.count >= 2) {
+                UILabel *icon = (UILabel *)stack.arrangedSubviews[0];
+                UILabel *title = (UILabel *)stack.arrangedSubviews[1];
+
+                icon.text = symbols[i];
+                icon.textColor = color;
+                title.text = titles[i];
+                title.textColor = color;
+                title.font = [UIFont systemFontOfSize:10
+                                                weight:selected
+                                                    ? UIFontWeightBold
+                                                    : UIFontWeightMedium];
+            }
+        }
+    }
+
+    [self showScreen:index];
+}
+
+#pragma mark - Screen Routing
+
+- (void)showScreen:(NSInteger)index {
+    for (UIView *view in self.contentContainer.subviews) {
+        [view removeFromSuperview];
+    }
+
+    self.homeScrollView = nil;
+
+    switch (index) {
+        case 0:
+            [self showHome];
+            break;
+
+        case 1:
+            [self showSettings];
+            break;
+
+        case 2:
+            [self showLogs];
+            break;
+
+        case 3:
+            [self showAbout];
+            break;
+
+        default:
+            break;
+    }
+}
+
+#pragma mark - Home Screen
+
+- (void)showHome {
+    UIScrollView *scroll = [[UIScrollView alloc] init];
+    scroll.translatesAutoresizingMaskIntoConstraints = NO;
+    scroll.alwaysBounceVertical = YES;
+    scroll.showsVerticalScrollIndicator = NO;
+
+    self.homeScrollView = scroll;
+
+    [self.contentContainer addSubview:scroll];
 
     UIView *content = [[UIView alloc] init];
     content.translatesAutoresizingMaskIntoConstraints = NO;
-    [scrollView addSubview:content];
+
+    [scroll addSubview:content];
 
     [NSLayoutConstraint activateConstraints:@[
-        [scrollView.topAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.topAnchor],
-        [scrollView.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
-        [scrollView.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
-        [scrollView.bottomAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.bottomAnchor],
+        [scroll.topAnchor constraintEqualToAnchor:self.contentContainer.topAnchor],
+        [scroll.leadingAnchor constraintEqualToAnchor:self.contentContainer.leadingAnchor],
+        [scroll.trailingAnchor constraintEqualToAnchor:self.contentContainer.trailingAnchor],
+        [scroll.bottomAnchor constraintEqualToAnchor:self.contentContainer.bottomAnchor],
 
-        [content.topAnchor constraintEqualToAnchor:scrollView.contentLayoutGuide.topAnchor],
-        [content.leadingAnchor constraintEqualToAnchor:scrollView.contentLayoutGuide.leadingAnchor],
-        [content.trailingAnchor constraintEqualToAnchor:scrollView.contentLayoutGuide.trailingAnchor],
-        [content.bottomAnchor constraintEqualToAnchor:scrollView.contentLayoutGuide.bottomAnchor],
-        [content.widthAnchor constraintEqualToAnchor:scrollView.frameLayoutGuide.widthAnchor]
+        [content.topAnchor constraintEqualToAnchor:scroll.contentLayoutGuide.topAnchor],
+        [content.leadingAnchor constraintEqualToAnchor:scroll.contentLayoutGuide.leadingAnchor],
+        [content.trailingAnchor constraintEqualToAnchor:scroll.contentLayoutGuide.trailingAnchor],
+        [content.bottomAnchor constraintEqualToAnchor:scroll.contentLayoutGuide.bottomAnchor],
+        [content.widthAnchor constraintEqualToAnchor:scroll.frameLayoutGuide.widthAnchor]
     ]];
 
-    UIStackView *mainStack = [self verticalStackWithSpacing:20];
-    [content addSubview:mainStack];
+    UIStackView *stack = [self verticalStackWithSpacing:18];
+    [content addSubview:stack];
 
     [NSLayoutConstraint activateConstraints:@[
-        [mainStack.topAnchor constraintEqualToAnchor:content.topAnchor constant:22],
-        [mainStack.leadingAnchor constraintEqualToAnchor:content.leadingAnchor constant:20],
-        [mainStack.trailingAnchor constraintEqualToAnchor:content.trailingAnchor constant:-20],
-        [mainStack.bottomAnchor constraintEqualToAnchor:content.bottomAnchor constant:-24]
+        [stack.topAnchor constraintEqualToAnchor:content.topAnchor constant:20],
+        [stack.leadingAnchor constraintEqualToAnchor:content.leadingAnchor constant:18],
+        [stack.trailingAnchor constraintEqualToAnchor:content.trailingAnchor constant:-18],
+        [stack.bottomAnchor constraintEqualToAnchor:content.bottomAnchor constant:-24]
     ]];
 
-    [mainStack addArrangedSubview:[self buildHeader]];
-    [mainStack addArrangedSubview:[self buildDeviceCard]];
-    [mainStack addArrangedSubview:[self buildCompatibilityCard]];
-    [mainStack addArrangedSubview:[self buildStatusCard]];
-    [mainStack addArrangedSubview:[self buildPatchButton]];
-    [mainStack addArrangedSubview:[self buildInformationCards]];
-    [mainStack addArrangedSubview:[self buildFooter]];
-
-    UIView *tabBar = [self buildBottomBar];
-    [self.view addSubview:tabBar];
-
-    [NSLayoutConstraint activateConstraints:@[
-        [tabBar.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
-        [tabBar.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
-        [tabBar.bottomAnchor constraintEqualToAnchor:self.view.bottomAnchor],
-        [tabBar.heightAnchor constraintEqualToConstant:82],
-
-        [scrollView.bottomAnchor constraintEqualToAnchor:tabBar.topAnchor]
-    ]];
+    [stack addArrangedSubview:[self buildHeader]];
+    [stack addArrangedSubview:[self buildDeviceCard]];
+    [stack addArrangedSubview:[self buildCompatibilityCard]];
+    [stack addArrangedSubview:[self buildStatusCard]];
+    [stack addArrangedSubview:[self buildPatchButton]];
+    [stack addArrangedSubview:[self buildInformationCards]];
+    [stack addArrangedSubview:[self buildFooter]];
 }
-
-#pragma mark - Header
 
 - (UIView *)buildHeader {
     UIStackView *header = [[UIStackView alloc] init];
     header.translatesAutoresizingMaskIntoConstraints = NO;
     header.axis = UILayoutConstraintAxisHorizontal;
     header.alignment = UIStackViewAlignmentCenter;
-    header.spacing = 14;
+    header.spacing = 12;
 
     UIView *logo = [[UIView alloc] init];
     logo.translatesAutoresizingMaskIntoConstraints = NO;
     logo.backgroundColor =
         [UIColor colorWithRed:0.20 green:0.09 blue:0.40 alpha:1.0];
-    logo.layer.cornerRadius = 19;
+    logo.layer.cornerRadius = 16;
     logo.layer.borderWidth = 1;
     logo.layer.borderColor = [self purpleColor].CGColor;
 
-    UILabel *logoSymbol = [self labelWithText:@"↯"
-                                         size:35
-                                        color:[self greenColor]
-                                       weight:UIFontWeightHeavy];
-    logoSymbol.textAlignment = NSTextAlignmentCenter;
+    UILabel *logoLabel = [self labelWithText:@"↯"
+                                        size:32
+                                       color:[self greenColor]
+                                      weight:UIFontWeightHeavy];
+    logoLabel.textAlignment = NSTextAlignmentCenter;
 
-    [logo addSubview:logoSymbol];
+    [logo addSubview:logoLabel];
 
     [NSLayoutConstraint activateConstraints:@[
-        [logo.widthAnchor constraintEqualToConstant:62],
-        [logo.heightAnchor constraintEqualToConstant:62],
-        [logoSymbol.centerXAnchor constraintEqualToAnchor:logo.centerXAnchor],
-        [logoSymbol.centerYAnchor constraintEqualToAnchor:logo.centerYAnchor]
+        [logo.widthAnchor constraintEqualToConstant:54],
+        [logo.heightAnchor constraintEqualToConstant:54],
+        [logoLabel.centerXAnchor constraintEqualToAnchor:logo.centerXAnchor],
+        [logoLabel.centerYAnchor constraintEqualToAnchor:logo.centerYAnchor]
     ]];
 
     UIStackView *branding = [self verticalStackWithSpacing:3];
 
-    UILabel *title = [self labelWithText:@"hurr1c4ne"
-                                    size:29
-                                   color:UIColor.whiteColor
-                                  weight:UIFontWeightHeavy];
+    [branding addArrangedSubview:
+        [self labelWithText:@"hurr1c4ne"
+                       size:27
+                      color:UIColor.whiteColor
+                     weight:UIFontWeightHeavy]];
 
-    NSMutableAttributedString *styledTitle =
-        [[NSMutableAttributedString alloc] initWithString:@"hurr1c4ne"];
-
-    [styledTitle addAttribute:NSForegroundColorAttributeName
-                        value:[self greenColor]
-                        range:NSMakeRange(4, 1)];
-
-    title.attributedText = styledTitle;
-    [branding addArrangedSubview:title];
-
-    NSString *subtitleText = @"iOS / iPadOS RESEARCH";
-
-    UILabel *subtitle = [self labelWithText:subtitleText
-                                       size:10
-                                      color:[self mutedColor]
-                                     weight:UIFontWeightBold];
-
-    NSMutableAttributedString *styledSubtitle =
-        [[NSMutableAttributedString alloc] initWithString:subtitleText];
-
-    [styledSubtitle addAttribute:NSKernAttributeName
-                           value:@2.0
-                           range:NSMakeRange(0, styledSubtitle.length)];
-
-    subtitle.attributedText = styledSubtitle;
-
-    [branding addArrangedSubview:subtitle];
+    [branding addArrangedSubview:
+        [self labelWithText:@"iOS / iPadOS RESEARCH"
+                       size:10
+                      color:[self mutedColor]
+                     weight:UIFontWeightBold]];
 
     UIView *spacer = [[UIView alloc] init];
 
     UIStackView *mode = [self verticalStackWithSpacing:4];
     mode.alignment = UIStackViewAlignmentTrailing;
 
-    UILabel *modeLabel = [self labelWithText:@"● RESEARCH"
-                                        size:11
-                                       color:[self greenColor]
-                                      weight:UIFontWeightBold];
+    [mode addArrangedSubview:
+        [self labelWithText:@"● RESEARCH"
+                       size:10
+                      color:[self greenColor]
+                     weight:UIFontWeightBold]];
 
-    UILabel *modeSub = [self labelWithText:@"MODE"
-                                      size:10
-                                     color:[self mutedColor]
-                                    weight:UIFontWeightMedium];
-
-    [mode addArrangedSubview:modeLabel];
-    [mode addArrangedSubview:modeSub];
+    [mode addArrangedSubview:
+        [self labelWithText:@"MODE"
+                       size:10
+                      color:[self mutedColor]
+                     weight:UIFontWeightMedium]];
 
     [header addArrangedSubview:logo];
     [header addArrangedSubview:branding];
@@ -302,19 +436,22 @@
 
 - (UIView *)buildDeviceCard {
     UIView *card = [self card];
+    UIStackView *stack = [self verticalStackWithSpacing:13];
 
-    UIStackView *stack = [self verticalStackWithSpacing:17];
     [card addSubview:stack];
 
     [NSLayoutConstraint activateConstraints:@[
-        [stack.topAnchor constraintEqualToAnchor:card.topAnchor constant:19],
-        [stack.leadingAnchor constraintEqualToAnchor:card.leadingAnchor constant:18],
-        [stack.trailingAnchor constraintEqualToAnchor:card.trailingAnchor constant:-18],
-        [stack.bottomAnchor constraintEqualToAnchor:card.bottomAnchor constant:-19]
+        [stack.topAnchor constraintEqualToAnchor:card.topAnchor constant:16],
+        [stack.leadingAnchor constraintEqualToAnchor:card.leadingAnchor constant:16],
+        [stack.trailingAnchor constraintEqualToAnchor:card.trailingAnchor constant:-16],
+        [stack.bottomAnchor constraintEqualToAnchor:card.bottomAnchor constant:-16]
     ]];
 
     [stack addArrangedSubview:
-        [self sectionHeading:@"▣" title:@"Device information"]];
+        [self labelWithText:@"▣  DEVICE INFORMATION"
+                       size:12
+                      color:[self greenColor]
+                     weight:UIFontWeightBold]];
 
     UIView *divider = [[UIView alloc] init];
     divider.translatesAutoresizingMaskIntoConstraints = NO;
@@ -323,68 +460,58 @@
     [divider.heightAnchor constraintEqualToConstant:1].active = YES;
     [stack addArrangedSubview:divider];
 
-    UIStackView *details = [[UIStackView alloc] init];
-    details.translatesAutoresizingMaskIntoConstraints = NO;
-    details.axis = UILayoutConstraintAxisHorizontal;
-    details.alignment = UIStackViewAlignmentTop;
-    details.distribution = UIStackViewDistributionFillEqually;
-    details.spacing = 8;
+    UIStackView *columns = [[UIStackView alloc] init];
+    columns.translatesAutoresizingMaskIntoConstraints = NO;
+    columns.axis = UILayoutConstraintAxisHorizontal;
+    columns.alignment = UIStackViewAlignmentTop;
+    columns.distribution = UIStackViewDistributionFillEqually;
+    columns.spacing = 8;
 
-    UIStackView *modelColumn = [self verticalStackWithSpacing:7];
-    UIStackView *osColumn = [self verticalStackWithSpacing:7];
-    UIStackView *buildColumn = [self verticalStackWithSpacing:7];
+    UIStackView *model = [self verticalStackWithSpacing:6];
+    UIStackView *os = [self verticalStackWithSpacing:6];
+    UIStackView *build = [self verticalStackWithSpacing:6];
 
-    [modelColumn addArrangedSubview:
-        [self labelWithText:@"MODEL"
-                       size:10
-                      color:[self mutedColor]
+    [model addArrangedSubview:
+        [self labelWithText:@"MODEL" size:9 color:[self mutedColor]
                      weight:UIFontWeightBold]];
 
     self.deviceModelLabel =
-        [self labelWithText:@"Detecting…"
-                       size:15
-                      color:UIColor.whiteColor
+        [self labelWithText:@"Detecting…" size:13 color:UIColor.whiteColor
                      weight:UIFontWeightBold];
 
     self.deviceModelLabel.adjustsFontSizeToFitWidth = YES;
-    self.deviceModelLabel.minimumScaleFactor = 0.75;
-    [modelColumn addArrangedSubview:self.deviceModelLabel];
+    self.deviceModelLabel.minimumScaleFactor = 0.65;
 
-    [osColumn addArrangedSubview:
-        [self labelWithText:@"iOS VERSION"
-                       size:10
-                      color:[self mutedColor]
+    [model addArrangedSubview:self.deviceModelLabel];
+
+    [os addArrangedSubview:
+        [self labelWithText:@"iOS VERSION" size:9 color:[self mutedColor]
                      weight:UIFontWeightBold]];
 
     self.osVersionLabel =
-        [self labelWithText:@"Detecting…"
-                       size:15
-                      color:UIColor.whiteColor
+        [self labelWithText:@"Detecting…" size:13 color:UIColor.whiteColor
                      weight:UIFontWeightBold];
 
-    [osColumn addArrangedSubview:self.osVersionLabel];
+    [os addArrangedSubview:self.osVersionLabel];
 
-    [buildColumn addArrangedSubview:
-        [self labelWithText:@"BUILD"
-                       size:10
-                      color:[self mutedColor]
+    [build addArrangedSubview:
+        [self labelWithText:@"BUILD" size:9 color:[self mutedColor]
                      weight:UIFontWeightBold]];
 
     self.buildLabel =
-        [self labelWithText:@"Detecting…"
-                       size:13
-                      color:UIColor.whiteColor
+        [self labelWithText:@"Detecting…" size:12 color:UIColor.whiteColor
                      weight:UIFontWeightMedium];
 
     self.buildLabel.adjustsFontSizeToFitWidth = YES;
-    self.buildLabel.minimumScaleFactor = 0.7;
-    [buildColumn addArrangedSubview:self.buildLabel];
+    self.buildLabel.minimumScaleFactor = 0.6;
 
-    [details addArrangedSubview:modelColumn];
-    [details addArrangedSubview:osColumn];
-    [details addArrangedSubview:buildColumn];
+    [build addArrangedSubview:self.buildLabel];
 
-    [stack addArrangedSubview:details];
+    [columns addArrangedSubview:model];
+    [columns addArrangedSubview:os];
+    [columns addArrangedSubview:build];
+
+    [stack addArrangedSubview:columns];
 
     return card;
 }
@@ -393,35 +520,22 @@
 
 - (UIView *)buildCompatibilityCard {
     UIView *card = [self card];
+    UIStackView *stack = [self verticalStackWithSpacing:12];
 
-    UIStackView *stack = [self verticalStackWithSpacing:14];
     [card addSubview:stack];
 
     [NSLayoutConstraint activateConstraints:@[
-        [stack.topAnchor constraintEqualToAnchor:card.topAnchor constant:19],
-        [stack.leadingAnchor constraintEqualToAnchor:card.leadingAnchor constant:18],
-        [stack.trailingAnchor constraintEqualToAnchor:card.trailingAnchor constant:-18],
-        [stack.bottomAnchor constraintEqualToAnchor:card.bottomAnchor constant:-19]
+        [stack.topAnchor constraintEqualToAnchor:card.topAnchor constant:16],
+        [stack.leadingAnchor constraintEqualToAnchor:card.leadingAnchor constant:16],
+        [stack.trailingAnchor constraintEqualToAnchor:card.trailingAnchor constant:-16],
+        [stack.bottomAnchor constraintEqualToAnchor:card.bottomAnchor constant:-16]
     ]];
 
     [stack addArrangedSubview:
-        [self sectionHeading:@"✓" title:@"Compatibility"]];
-
-    UIView *inner = [[UIView alloc] init];
-    inner.translatesAutoresizingMaskIntoConstraints = NO;
-    inner.backgroundColor =
-        [UIColor colorWithRed:0.025 green:0.15 blue:0.12 alpha:1];
-    inner.layer.cornerRadius = 15;
-    inner.layer.borderWidth = 1;
-    inner.layer.borderColor =
-        [UIColor colorWithRed:0.10 green:0.65 blue:0.45 alpha:0.8].CGColor;
-
-    [stack addArrangedSubview:inner];
-
-    UILabel *range = [self labelWithText:@"TARGET RANGE  ·  A13 AND NEWER"
-                                    size:10
-                                   color:[self greenColor]
-                                  weight:UIFontWeightBold];
+        [self labelWithText:@"✓  COMPATIBILITY"
+                       size:12
+                      color:[self greenColor]
+                     weight:UIFontWeightBold]];
 
     self.compatibilityLabel =
         [self labelWithText:@"Checking operating system…"
@@ -429,25 +543,13 @@
                       color:UIColor.whiteColor
                      weight:UIFontWeightSemibold];
 
-    UILabel *note =
-        [self labelWithText:@"OS compatibility does not mean a working jailbreak is available."
+    [stack addArrangedSubview:self.compatibilityLabel];
+
+    [stack addArrangedSubview:
+        [self labelWithText:@"OS compatibility does not confirm exploit availability."
                        size:11
                       color:[self mutedColor]
-                     weight:UIFontWeightRegular];
-
-    UIStackView *innerStack = [self verticalStackWithSpacing:8];
-    [inner addSubview:innerStack];
-
-    [innerStack addArrangedSubview:range];
-    [innerStack addArrangedSubview:self.compatibilityLabel];
-    [innerStack addArrangedSubview:note];
-
-    [NSLayoutConstraint activateConstraints:@[
-        [innerStack.topAnchor constraintEqualToAnchor:inner.topAnchor constant:15],
-        [innerStack.leadingAnchor constraintEqualToAnchor:inner.leadingAnchor constant:15],
-        [innerStack.trailingAnchor constraintEqualToAnchor:inner.trailingAnchor constant:-15],
-        [innerStack.bottomAnchor constraintEqualToAnchor:inner.bottomAnchor constant:-15]
-    ]];
+                     weight:UIFontWeightRegular]];
 
     return card;
 }
@@ -456,58 +558,28 @@
 
 - (UIView *)buildStatusCard {
     UIView *card = [self card];
+    UIStackView *stack = [self verticalStackWithSpacing:10];
 
-    UIStackView *stack = [self verticalStackWithSpacing:14];
     [card addSubview:stack];
 
     [NSLayoutConstraint activateConstraints:@[
-        [stack.topAnchor constraintEqualToAnchor:card.topAnchor constant:19],
-        [stack.leadingAnchor constraintEqualToAnchor:card.leadingAnchor constant:18],
-        [stack.trailingAnchor constraintEqualToAnchor:card.trailingAnchor constant:-18],
-        [stack.bottomAnchor constraintEqualToAnchor:card.bottomAnchor constant:-19]
+        [stack.topAnchor constraintEqualToAnchor:card.topAnchor constant:16],
+        [stack.leadingAnchor constraintEqualToAnchor:card.leadingAnchor constant:16],
+        [stack.trailingAnchor constraintEqualToAnchor:card.trailingAnchor constant:-16],
+        [stack.bottomAnchor constraintEqualToAnchor:card.bottomAnchor constant:-16]
     ]];
 
     [stack addArrangedSubview:
-        [self sectionHeading:@"∿" title:@"System status"]];
+        [self labelWithText:@"∿  SYSTEM STATUS"
+                       size:12
+                      color:[self greenColor]
+                     weight:UIFontWeightBold]];
 
-    UIStackView *statusRow = [[UIStackView alloc] init];
-    statusRow.translatesAutoresizingMaskIntoConstraints = NO;
-    statusRow.axis = UILayoutConstraintAxisHorizontal;
-    statusRow.alignment = UIStackViewAlignmentCenter;
-    statusRow.spacing = 13;
-
-    UIView *indicator = [[UIView alloc] init];
-    indicator.translatesAutoresizingMaskIntoConstraints = NO;
-    indicator.backgroundColor =
-        [UIColor colorWithRed:0.18 green:0.12 blue:0.35 alpha:1];
-    indicator.layer.cornerRadius = 22;
-    indicator.layer.borderWidth = 2;
-    indicator.layer.borderColor = [self purpleColor].CGColor;
-
-    [NSLayoutConstraint activateConstraints:@[
-        [indicator.widthAnchor constraintEqualToConstant:44],
-        [indicator.heightAnchor constraintEqualToConstant:44]
-    ]];
-
-    UILabel *dot = [self labelWithText:@"●"
-                                  size:17
-                                 color:[self greenColor]
-                                weight:UIFontWeightBold];
-
-    dot.textAlignment = NSTextAlignmentCenter;
-    [indicator addSubview:dot];
-
-    [NSLayoutConstraint activateConstraints:@[
-        [dot.centerXAnchor constraintEqualToAnchor:indicator.centerXAnchor],
-        [dot.centerYAnchor constraintEqualToAnchor:indicator.centerYAnchor]
-    ]];
-
-    UIStackView *statusText = [self verticalStackWithSpacing:4];
-
-    UILabel *ready = [self labelWithText:@"Research scaffold ready"
-                                    size:15
-                                   color:UIColor.whiteColor
-                                  weight:UIFontWeightBold];
+    [stack addArrangedSubview:
+        [self labelWithText:@"Research scaffold ready"
+                       size:15
+                      color:UIColor.whiteColor
+                     weight:UIFontWeightBold]];
 
     self.statusLabel =
         [self labelWithText:@"No exploit backend is integrated."
@@ -515,13 +587,7 @@
                       color:[self mutedColor]
                      weight:UIFontWeightRegular];
 
-    [statusText addArrangedSubview:ready];
-    [statusText addArrangedSubview:self.statusLabel];
-
-    [statusRow addArrangedSubview:indicator];
-    [statusRow addArrangedSubview:statusText];
-
-    [stack addArrangedSubview:statusRow];
+    [stack addArrangedSubview:self.statusLabel];
 
     return card;
 }
@@ -535,28 +601,19 @@
     self.patchButton = [UIButton buttonWithType:UIButtonTypeCustom];
     self.patchButton.translatesAutoresizingMaskIntoConstraints = NO;
     self.patchButton.backgroundColor = [self purpleColor];
-    self.patchButton.layer.cornerRadius = 19;
+    self.patchButton.layer.cornerRadius = 18;
     self.patchButton.layer.borderWidth = 1;
     self.patchButton.layer.borderColor =
         [UIColor colorWithRed:0.68 green:0.48 blue:1 alpha:1].CGColor;
-    self.patchButton.clipsToBounds = YES;
 
-    [self.patchButton setTitle:@"  ↯   PatchMe   ›"
+    [self.patchButton setTitle:@"↯   PatchMe   ›"
                       forState:UIControlStateNormal];
 
     [self.patchButton setTitleColor:UIColor.whiteColor
                            forState:UIControlStateNormal];
 
     self.patchButton.titleLabel.font =
-        [UIFont systemFontOfSize:23 weight:UIFontWeightHeavy];
-
-    self.patchButton.titleLabel.adjustsFontSizeToFitWidth = YES;
-    self.patchButton.titleLabel.minimumScaleFactor = 0.75;
-
-    // Use the configuration-independent content layout instead of the
-    // deprecated contentEdgeInsets property.
-    self.patchButton.contentHorizontalAlignment = UIControlContentHorizontalAlignmentCenter;
-    self.patchButton.contentVerticalAlignment = UIControlContentVerticalAlignmentCenter;
+        [UIFont systemFontOfSize:22 weight:UIFontWeightHeavy];
 
     [self.patchButton addTarget:self
                          action:@selector(patchTapped)
@@ -569,7 +626,7 @@
         [self.patchButton.leadingAnchor constraintEqualToAnchor:container.leadingAnchor],
         [self.patchButton.trailingAnchor constraintEqualToAnchor:container.trailingAnchor],
         [self.patchButton.bottomAnchor constraintEqualToAnchor:container.bottomAnchor],
-        [self.patchButton.heightAnchor constraintGreaterThanOrEqualToConstant:76]
+        [self.patchButton.heightAnchor constraintEqualToConstant:70]
     ]];
 
     return container;
@@ -594,23 +651,8 @@
     [about addSubview:aboutStack];
     [notice addSubview:noticeStack];
 
-    for (UIView *card in @[about, notice]) {
-        [NSLayoutConstraint activateConstraints:@[
-            [card.heightAnchor constraintGreaterThanOrEqualToConstant:160]
-        ]];
-    }
-
-    [NSLayoutConstraint activateConstraints:@[
-        [aboutStack.topAnchor constraintEqualToAnchor:about.topAnchor constant:15],
-        [aboutStack.leadingAnchor constraintEqualToAnchor:about.leadingAnchor constant:13],
-        [aboutStack.trailingAnchor constraintEqualToAnchor:about.trailingAnchor constant:-13],
-        [aboutStack.bottomAnchor constraintLessThanOrEqualToAnchor:about.bottomAnchor constant:-15],
-
-        [noticeStack.topAnchor constraintEqualToAnchor:notice.topAnchor constant:15],
-        [noticeStack.leadingAnchor constraintEqualToAnchor:notice.leadingAnchor constant:13],
-        [noticeStack.trailingAnchor constraintEqualToAnchor:notice.trailingAnchor constant:-13],
-        [noticeStack.bottomAnchor constraintLessThanOrEqualToAnchor:notice.bottomAnchor constant:-15]
-    ]];
+    [self pinView:aboutStack inside:about inset:12];
+    [self pinView:noticeStack inside:notice inset:12];
 
     [aboutStack addArrangedSubview:
         [self labelWithText:@"ⓘ  ABOUT"
@@ -618,14 +660,11 @@
                       color:[self mutedColor]
                      weight:UIFontWeightBold]];
 
-    UILabel *aboutText =
-        [self labelWithText:
-            @"hurr1c4ne is an iOS research project. A compatible backend is required for any patching functionality."
+    [aboutStack addArrangedSubview:
+        [self labelWithText:@"An iOS research project requiring compatible system capabilities."
                        size:12
                       color:UIColor.whiteColor
-                     weight:UIFontWeightRegular];
-
-    [aboutStack addArrangedSubview:aboutText];
+                     weight:UIFontWeightRegular]];
 
     [noticeStack addArrangedSubview:
         [self labelWithText:@"⚠  IMPORTANT"
@@ -633,14 +672,11 @@
                       color:[self mutedColor]
                      weight:UIFontWeightBold]];
 
-    UILabel *noticeText =
-        [self labelWithText:
-            @"Research scaffold only.\nNo jailbreak capability is implied.\nUse at your own risk."
+    [noticeStack addArrangedSubview:
+        [self labelWithText:@"Research scaffold only. No jailbreak capability is implied."
                        size:12
                       color:UIColor.whiteColor
-                     weight:UIFontWeightRegular];
-
-    [noticeStack addArrangedSubview:noticeText];
+                     weight:UIFontWeightRegular]];
 
     [row addArrangedSubview:about];
     [row addArrangedSubview:notice];
@@ -658,61 +694,179 @@
                      weight:UIFontWeightMedium];
 
     footer.textAlignment = NSTextAlignmentCenter;
+
     return footer;
 }
 
-#pragma mark - Bottom Navigation
+#pragma mark - Settings Screen
 
-- (UIView *)buildBottomBar {
-    UIView *bar = [[UIView alloc] init];
-    bar.translatesAutoresizingMaskIntoConstraints = NO;
-    bar.backgroundColor =
-        [UIColor colorWithRed:0.025 green:0.035 blue:0.065 alpha:0.98];
-    bar.layer.borderWidth = 1;
-    bar.layer.borderColor = [UIColor colorWithWhite:1 alpha:0.07].CGColor;
-
-    UIStackView *tabs = [[UIStackView alloc] init];
-    tabs.translatesAutoresizingMaskIntoConstraints = NO;
-    tabs.axis = UILayoutConstraintAxisHorizontal;
-    tabs.alignment = UIStackViewAlignmentCenter;
-    tabs.distribution = UIStackViewDistributionFillEqually;
-
-    NSArray<NSString *> *symbols = @[@"⌂", @"⚙", @"≡", @"ⓘ"];
-    NSArray<NSString *> *titles = @[@"Home", @"Settings", @"Logs", @"About"];
-
-    for (NSUInteger i = 0; i < titles.count; i++) {
-        UIStackView *tab = [self verticalStackWithSpacing:3];
-        tab.alignment = UIStackViewAlignmentCenter;
-
-        UIColor *color = (i == 0)
-            ? [self greenColor]
-            : [self mutedColor];
-
-        UILabel *icon = [self labelWithText:symbols[i]
-                                       size:23
-                                      color:color
-                                     weight:UIFontWeightSemibold];
-
-        UILabel *title = [self labelWithText:titles[i]
-                                        size:10
-                                       color:color
-                                      weight:UIFontWeightMedium];
-
-        [tab addArrangedSubview:icon];
-        [tab addArrangedSubview:title];
-        [tabs addArrangedSubview:tab];
-    }
-
-    [bar addSubview:tabs];
+- (void)showSettings {
+    UIStackView *stack = [self verticalStackWithSpacing:18];
+    [self.contentContainer addSubview:stack];
 
     [NSLayoutConstraint activateConstraints:@[
-        [tabs.leadingAnchor constraintEqualToAnchor:bar.leadingAnchor constant:12],
-        [tabs.trailingAnchor constraintEqualToAnchor:bar.trailingAnchor constant:-12],
-        [tabs.topAnchor constraintEqualToAnchor:bar.topAnchor constant:9],
-        [tabs.bottomAnchor constraintEqualToAnchor:bar.bottomAnchor constant:-20]
+        [stack.topAnchor constraintEqualToAnchor:self.contentContainer.topAnchor constant:28],
+        [stack.leadingAnchor constraintEqualToAnchor:self.contentContainer.leadingAnchor constant:20],
+        [stack.trailingAnchor constraintEqualToAnchor:self.contentContainer.trailingAnchor constant:-20]
     ]];
 
-    return bar;
+    [stack addArrangedSubview:
+        [self labelWithText:@"Settings"
+                       size:30
+                      color:UIColor.whiteColor
+                     weight:UIFontWeightHeavy]];
+
+    UIView *card = [self card];
+    UIStackView *items = [self verticalStackWithSpacing:16];
+
+    [card addSubview:items];
+    [self pinView:items inside:card inset:18];
+
+    [items addArrangedSubview:
+        [self labelWithText:@"BOOTSTRAP"
+                       size:11
+                      color:[self greenColor]
+                     weight:UIFontWeightBold]];
+
+    [items addArrangedSubview:
+        [self labelWithText:@"Procursus · Rootless"
+                       size:16
+                      color:UIColor.whiteColor
+                     weight:UIFontWeightSemibold]];
+
+    [items addArrangedSubview:
+        [self labelWithText:@"Bootstrap installation has not been verified."
+                       size:12
+                      color:[self mutedColor]
+                     weight:UIFontWeightRegular]];
+
+    [items addArrangedSubview:
+        [self labelWithText:@"TARGET VERSIONS"
+                       size:11
+                      color:[self greenColor]
+                     weight:UIFontWeightBold]];
+
+    [items addArrangedSubview:
+        [self labelWithText:@"iOS 26.0 – 27.0.1"
+                       size:15
+                      color:UIColor.whiteColor
+                     weight:UIFontWeightSemibold]];
+
+    [stack addArrangedSubview:card];
+
+    [stack addArrangedSubview:
+        [self labelWithText:@"This screen reports project configuration. It does not change system security settings."
+                       size:12
+                      color:[self mutedColor]
+                     weight:UIFontWeightRegular]];
+}
+
+#pragma mark - Logs Screen
+
+- (void)showLogs {
+    UIStackView *stack = [self verticalStackWithSpacing:16];
+    [self.contentContainer addSubview:stack];
+
+    [NSLayoutConstraint activateConstraints:@[
+        [stack.topAnchor constraintEqualToAnchor:self.contentContainer.topAnchor constant:28],
+        [stack.leadingAnchor constraintEqualToAnchor:self.contentContainer.leadingAnchor constant:20],
+        [stack.trailingAnchor constraintEqualToAnchor:self.contentContainer.trailingAnchor constant:-20]
+    ]];
+
+    [stack addArrangedSubview:
+        [self labelWithText:@"Logs"
+                       size:30
+                      color:UIColor.whiteColor
+                     weight:UIFontWeightHeavy]];
+
+    UIView *card = [self card];
+    UIStackView *logItems = [self verticalStackWithSpacing:12];
+
+    [card addSubview:logItems];
+    [self pinView:logItems inside:card inset:16];
+
+    [logItems addArrangedSubview:
+        [self labelWithText:@"[INFO] hurr1c4ne interface initialized"
+                       size:12
+                      color:[self greenColor]
+                     weight:UIFontWeightMedium]];
+
+    [logItems addArrangedSubview:
+        [self labelWithText:@"[INFO] Device information loaded"
+                       size:12
+                      color:UIColor.whiteColor
+                     weight:UIFontWeightRegular]];
+
+    [logItems addArrangedSubview:
+        [self labelWithText:@"[INFO] Rootless Procursus integration planned"
+                       size:12
+                      color:UIColor.whiteColor
+                     weight:UIFontWeightRegular]];
+
+    [logItems addArrangedSubview:
+        [self labelWithText:@"[NOTICE] Bootstrap installation not verified"
+                       size:12
+                      color:[self mutedColor]
+                     weight:UIFontWeightRegular]];
+
+    [logItems addArrangedSubview:
+        [self labelWithText:@"[NOTICE] No exploit backend integrated"
+                       size:12
+                      color:[self mutedColor]
+                     weight:UIFontWeightRegular]];
+
+    [stack addArrangedSubview:card];
+}
+
+#pragma mark - About Screen
+
+- (void)showAbout {
+    UIStackView *stack = [self verticalStackWithSpacing:18];
+    [self.contentContainer addSubview:stack];
+
+    [NSLayoutConstraint activateConstraints:@[
+        [stack.topAnchor constraintEqualToAnchor:self.contentContainer.topAnchor constant:28],
+        [stack.leadingAnchor constraintEqualToAnchor:self.contentContainer.leadingAnchor constant:20],
+        [stack.trailingAnchor constraintEqualToAnchor:self.contentContainer.trailingAnchor constant:-20]
+    ]];
+
+    [stack addArrangedSubview:
+        [self labelWithText:@"About hurr1c4ne"
+                       size:29
+                      color:UIColor.whiteColor
+                     weight:UIFontWeightHeavy]];
+
+    UIView *card = [self card];
+    UIStackView *details = [self verticalStackWithSpacing:12];
+
+    [card addSubview:details];
+    [self pinView:details inside:card inset:18];
+
+    [details addArrangedSubview:
+        [self labelWithText:@"VERSION 0.1.0"
+                       size:12
+                      color:[self greenColor]
+                     weight:UIFontWeightBold]];
+
+    [details addArrangedSubview:
+        [self labelWithText:@"An Objective-C iOS research project."
+                       size:15
+                      color:UIColor.whiteColor
+                     weight:UIFontWeightSemibold]];
+
+    [details addArrangedSubview:
+        [self labelWithText:@"Target range: iOS 26.0 through 27.0.1."
+                       size:13
+                      color:[self mutedColor]
+                     weight:UIFontWeightRegular]];
+
+    [details addArrangedSubview:
+        [self labelWithText:@"The Procursus rootless bootstrap is a planned integration. This build does not claim that a jailbreak is installed."
+                       size:13
+                      color:UIColor.whiteColor
+                     weight:UIFontWeightRegular]];
+
+    [stack addArrangedSubview:card];
 }
 
 #pragma mark - Device Information
@@ -748,7 +902,7 @@
 
 - (void)patchTapped {
     self.patchButton.enabled = NO;
-    self.patchButton.alpha = 0.75;
+    self.patchButton.alpha = 0.65;
 
     self.statusLabel.text = @"Evaluating available capabilities…";
 
