@@ -21,6 +21,13 @@ targets:
 
     info:
       path: hurr1c4ne/Info.plist
+      properties:
+        UILaunchStoryboardName: LaunchScreen
+        UIRequiresFullScreen: true
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
 
     settings:
       base:
@@ -31,7 +38,6 @@ targets:
         IPHONEOS_DEPLOYMENT_TARGET: "15.0"
         GENERATE_INFOPLIST_FILE: NO
         INFOPLIST_FILE: hurr1c4ne/Info.plist
-        INFOPLIST_KEY_UILaunchStoryboardName: LaunchScreen
         CODE_SIGNING_ALLOWED: NO
         SWIFT_VERSION: ""
         ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS: NO
