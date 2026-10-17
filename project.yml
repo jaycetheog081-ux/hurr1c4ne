@@ -41,3 +41,36 @@ targets:
         CODE_SIGNING_ALLOWED: NO
         SWIFT_VERSION: ""
         ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS: NO
+
+  Radix:
+    type: application
+    platform: iOS
+
+    sources:
+      - path: Radix
+        excludes:
+          - Info.plist
+
+    info:
+      path: Radix/Info.plist
+      properties:
+        CFBundleDisplayName: Radix
+        UILaunchScreen: {}
+        UIRequiresFullScreen: true
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.hurr1c4ne.radix
+        PRODUCT_NAME: Radix
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SDKROOT: iphoneos
+        IPHONEOS_DEPLOYMENT_TARGET: "15.0"
+        GENERATE_INFOPLIST_FILE: NO
+        INFOPLIST_FILE: Radix/Info.plist
+        CODE_SIGNING_ALLOWED: NO
+        SWIFT_VERSION: ""
+        ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS: NO
