@@ -21,7 +21,7 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Select Xcode
+      - name: Select Xcode and locate project
         shell: bash
         run: |
           set -euo pipefail
@@ -29,133 +29,68 @@ jobs:
           if [ -d "/Applications/Xcode_16.4.app" ]; then
             sudo xcode-select --switch \
               "/Applications/Xcode_16.4.app/Contents/Developer"
-          else
-            echo "Xcode_16.4.app is not installed on this runner."
-            xcodebuild -version
           fi
 
           xcodebuild -version
-          xcodebuild -list -project hurr1c4ne.xcodeproj
+
+          echo "Searching for Xcode projects and workspaces..."
+          find . -maxdepth 5 \
+            \( -name "*.xcodeproj" -o -name "*.xcworkspace" \) \
+            -print
+
+          PROJECT_PATH="$(find . -maxdepth 5 -name "*.xcodeproj" -print -quit)"
+
+          if [ -z "$PROJECT_PATH" ]; then
+            echo "::error::No .xcodeproj found in the repository."
+            echo "Repository root contents:"
+            ls -la
+            exit 1
+          fi
+
+          PROJECT_PATH="${PROJECT_PATH#./}"
+
+          echo "Found project: $PROJECT_PATH"
+          echo "PROJECT_PATH=$PROJECT_PATH" >> "$GITHUB_ENV"
+
+          xcodebuild -list -project "$PROJECT_PATH"
 
       - name: Build Radix
         shell: bash
         run: |
-          set -uo pipefail
+          set -euo pipefail
 
           mkdir -p build/logs
 
-          PROJECT="hurr1c4ne.xcodeproj"
-          SCHEME="Radix"
-          DERIVED_DATA="$PWD/build/DerivedData-Radix"
-          LOG="$PWD/build/logs/Radix-build.log"
-
-          attempt=1
-
-          while [ "$attempt" -le 2 ]; do
-            echo "Radix build attempt $attempt of 2"
-
-            if [ "$attempt" -eq 2 ]; then
-              rm -rf "$DERIVED_DATA"
-            fi
-
-            set +e
-
-            xcodebuild \
-              -project "$PROJECT" \
-              -scheme "$SCHEME" \
-              -configuration Release \
-              -sdk iphoneos \
-              -destination 'generic/platform=iOS' \
-              -derivedDataPath "$DERIVED_DATA" \
-              -parallelizeTargets NO \
-              -jobs 1 \
-              CODE_SIGNING_ALLOWED=NO \
-              build 2>&1 | tee "$LOG"
-
-            status=${PIPESTATUS[0]}
-
-            set -e
-
-            if [ "$status" -eq 0 ]; then
-              exit 0
-            fi
-
-            if ! grep -q \
-              "unexpected service error: The Xcode build system has crashed" \
-              "$LOG"; then
-              echo "Build failed for a reason other than the known Xcode build-system crash."
-              exit "$status"
-            fi
-
-            if [ "$attempt" -eq 1 ]; then
-              echo "Xcode build service crashed. Retrying with fresh DerivedData."
-            fi
-
-            attempt=$((attempt + 1))
-          done
-
-          echo "Radix build failed after retry."
-          exit 1
+          xcodebuild \
+            -project "$PROJECT_PATH" \
+            -scheme Radix \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath "$PWD/build/DerivedData-Radix" \
+            -parallelizeTargets NO \
+            -jobs 1 \
+            CODE_SIGNING_ALLOWED=NO \
+            build 2>&1 | tee build/logs/Radix-build.log
 
       - name: Build hurr1c4ne
         shell: bash
         run: |
-          set -uo pipefail
+          set -euo pipefail
 
           mkdir -p build/logs
 
-          PROJECT="hurr1c4ne.xcodeproj"
-          SCHEME="hurr1c4ne"
-          DERIVED_DATA="$PWD/build/DerivedData-hurr1c4ne"
-          LOG="$PWD/build/logs/hurr1c4ne-build.log"
-
-          attempt=1
-
-          while [ "$attempt" -le 2 ]; do
-            echo "hurr1c4ne build attempt $attempt of 2"
-
-            if [ "$attempt" -eq 2 ]; then
-              rm -rf "$DERIVED_DATA"
-            fi
-
-            set +e
-
-            xcodebuild \
-              -project "$PROJECT" \
-              -scheme "$SCHEME" \
-              -configuration Release \
-              -sdk iphoneos \
-              -destination 'generic/platform=iOS' \
-              -derivedDataPath "$DERIVED_DATA" \
-              -parallelizeTargets NO \
-              -jobs 1 \
-              CODE_SIGNING_ALLOWED=NO \
-              build 2>&1 | tee "$LOG"
-
-            status=${PIPESTATUS[0]}
-
-            set -e
-
-            if [ "$status" -eq 0 ]; then
-              exit 0
-            fi
-
-            if ! grep -q \
-              "unexpected service error: The Xcode build system has crashed" \
-              "$LOG"; then
-              echo "Build failed for a reason other than the known Xcode build-system crash."
-              exit "$status"
-            fi
-
-            if [ "$attempt" -eq 1 ]; then
-              echo "Xcode build service crashed. Retrying with fresh DerivedData."
-            fi
-
-            attempt=$((attempt + 1))
-          done
-
-          echo "hurr1c4ne build failed after retry."
-          exit 1
+          xcodebuild \
+            -project "$PROJECT_PATH" \
+            -scheme hurr1c4ne \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath "$PWD/build/DerivedData-hurr1c4ne" \
+            -parallelizeTargets NO \
+            -jobs 1 \
+            CODE_SIGNING_ALLOWED=NO \
+            build 2>&1 | tee build/logs/hurr1c4ne-build.log
 
       - name: Package unsigned IPAs
         if: success()
@@ -171,7 +106,7 @@ jobs:
             local staging
 
             if [ ! -d "$app_path" ]; then
-              echo "App bundle not found: $app_path"
+              echo "::error::App bundle not found: $app_path"
               return 1
             fi
 
@@ -180,13 +115,12 @@ jobs:
 
             rm -rf "$staging"
             mkdir -p "$staging/Payload"
-
             cp -R "$app_path" "$staging/Payload/"
 
             (
               cd "$staging"
               /usr/bin/zip -qry \
-                "$PWD/../ipas/$app_name-unsigned.ipa" \
+                "$GITHUB_WORKSPACE/build/ipas/$app_name-unsigned.ipa" \
                 Payload
             )
           }
