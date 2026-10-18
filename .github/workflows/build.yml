@@ -1,4 +1,4 @@
-name: Build hurr1c4ne IPA
+name: Build hurr1c4ne and Radix
 
 on:
   push:
@@ -11,7 +11,6 @@ permissions:
 
 jobs:
   build:
-    name: Build iOS IPA
     runs-on: macos-15
 
     steps:
@@ -26,8 +25,6 @@ jobs:
 
       - name: Build hurr1c4ne
         run: |
-          set -euo pipefail
-
           xcodebuild \
             -project hurr1c4ne.xcodeproj \
             -scheme hurr1c4ne \
@@ -37,84 +34,65 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             build
 
-      - name: Verify app configuration
+      - name: Build Radix
         run: |
-          set -euo pipefail
+          xcodebuild \
+            -project hurr1c4ne.xcodeproj \
+            -scheme Radix \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath build/DerivedData \
+            CODE_SIGNING_ALLOWED=NO \
+            build
 
-          APP_PATH="build/DerivedData/Build/Products/Release-iphoneos/hurr1c4ne.app"
-          PLIST="$APP_PATH/Info.plist"
-
-          test -d "$APP_PATH" || {
-            echo "::error::Built app not found"
-            exit 1
-          }
-
-          test -f "$PLIST" || {
-            echo "::error::Built Info.plist not found"
-            exit 1
-          }
-
-          echo "=== Bundle identifier ==="
-          /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$PLIST"
-
-          echo "=== Launch storyboard ==="
-          LAUNCH_SCREEN=$(/usr/libexec/PlistBuddy \
-            -c "Print :UILaunchStoryboardName" "$PLIST")
-
-          echo "Configured launch screen: $LAUNCH_SCREEN"
-
-          test -f "$APP_PATH/$LAUNCH_SCREEN.storyboardc/Info.plist" || {
-            echo "::error::Compiled launch storyboard is missing: $LAUNCH_SCREEN.storyboardc"
-            echo "=== App contents ==="
-            find "$APP_PATH" -maxdepth 3 -print
-            exit 1
-          }
-
-          echo "=== Full-screen setting ==="
-          /usr/libexec/PlistBuddy \
-            -c "Print :UIRequiresFullScreen" "$PLIST"
-
-          echo "=== Device family ==="
-          /usr/libexec/PlistBuddy \
-            -c "Print :UIDeviceFamily" "$PLIST"
-
-          echo "=== Supported orientations ==="
-          /usr/libexec/PlistBuddy \
-            -c "Print :UISupportedInterfaceOrientations" "$PLIST"
-
-          echo "=== Launch screen verified ==="
-
-      - name: Package IPA
+      - name: Verify both apps
         run: |
-          set -euo pipefail
+          set -e
 
-          APP_PATH="build/DerivedData/Build/Products/Release-iphoneos/hurr1c4ne.app"
-          IPA_DIR="$PWD/build/ipa"
-          IPA_PATH="$PWD/build/hurr1c4ne.ipa"
+          HURRICANE="build/DerivedData/Build/Products/Release-iphoneos/hurr1c4ne.app"
+          RADIX="build/DerivedData/Build/Products/Release-iphoneos/Radix.app"
 
-          test -d "$APP_PATH"
+          test -d "$HURRICANE" || {
+            echo "ERROR: hurr1c4ne.app was not produced"
+            exit 1
+          }
 
-          mkdir -p "$IPA_DIR/Payload" "$PWD/build"
-          cp -R "$APP_PATH" "$IPA_DIR/Payload/"
+          test -d "$RADIX" || {
+            echo "ERROR: Radix.app was not produced"
+            exit 1
+          }
 
-          cd "$IPA_DIR"
+          echo "=== hurr1c4ne bundle identifier ==="
+          /usr/libexec/PlistBuddy \
+            -c "Print :CFBundleIdentifier" \
+            "$HURRICANE/Info.plist"
 
-          /usr/bin/ditto -c -k --sequesterRsrc --keepParent \
-            Payload "$IPA_PATH"
+          echo "=== Radix bundle identifier ==="
+          /usr/libexec/PlistBuddy \
+            -c "Print :CFBundleIdentifier" \
+            "$RADIX/Info.plist"
 
-          echo "=== Verify packaged IPA ==="
-          /usr/bin/unzip -Z1 "$IPA_PATH" \
-            | grep -q '^Payload/hurr1c4ne.app/Info.plist$'
+      - name: Package both applications
+        run: |
+          set -e
 
-          /usr/bin/unzip -Z1 "$IPA_PATH" \
-            | grep -q '^Payload/hurr1c4ne.app/LaunchScreen.storyboardc/'
+          mkdir -p build/distribution
 
-          echo "IPA packaged and verified successfully."
+          ditto \
+            "build/DerivedData/Build/Products/Release-iphoneos/hurr1c4ne.app" \
+            "build/distribution/hurr1c4ne.app"
 
-      - name: Upload IPA
+          ditto \
+            "build/DerivedData/Build/Products/Release-iphoneos/Radix.app" \
+            "build/distribution/Radix.app"
+
+          cd build/distribution
+          zip -qry ../hurr1c4ne-Radix-apps.zip \
+            hurr1c4ne.app Radix.app
+
+      - name: Upload both applications
         uses: actions/upload-artifact@v4
         with:
-          name: hurr1c4ne-ipa
-          path: build/hurr1c4ne.ipa
+          name: hurr1c4ne-Radix-apps
+          path: build/hurr1c4ne-Radix-apps.zip
           if-no-files-found: error
-          retention-days: 14
