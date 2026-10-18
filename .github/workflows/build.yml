@@ -86,7 +86,6 @@ jobs:
               -sdk iphoneos \
               -destination 'generic/platform=iOS' \
               -derivedDataPath "$DERIVED_DATA" \
-              -parallelizeTargets NO \
               -jobs 1 \
               CODE_SIGNING_ALLOWED=NO \
               build 2>&1 | tee "$LOG"
@@ -135,7 +134,6 @@ jobs:
               -sdk iphoneos \
               -destination 'generic/platform=iOS' \
               -derivedDataPath "$DERIVED_DATA" \
-              -parallelizeTargets NO \
               -jobs 1 \
               CODE_SIGNING_ALLOWED=NO \
               build 2>&1 | tee "$LOG"
