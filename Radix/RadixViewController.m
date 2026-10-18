@@ -156,9 +156,11 @@ typedef NS_ENUM(NSInteger, RXTab) {
 
     [self.view addSubview:self.rootView];
 
+    // Create the bottom bar before the content area because the content area's
+    // bottom constraint references self.bottomBar.topAnchor.
     [self buildTopBar];
-    [self buildContentArea];
     [self buildBottomBar];
+    [self buildContentArea];
 }
 
 - (void)buildTopBar {
