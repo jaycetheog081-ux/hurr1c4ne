@@ -14,6 +14,7 @@ concurrency:
 
 jobs:
   build:
+    name: Build hurr1c4ne and Radix
     runs-on: macos-15
     timeout-minutes: 45
 
@@ -21,25 +22,28 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Select Xcode
+      - name: Select Xcode 16.4
         shell: bash
         run: |
           set -euo pipefail
 
           if [ -d "/Applications/Xcode_16.4.app" ]; then
-            sudo xcode-select --switch \
-              "/Applications/Xcode_16.4.app/Contents/Developer"
+            sudo xcode-select --switch /Applications/Xcode_16.4.app/Contents/Developer
           fi
 
-          xcodebuild -version
+          echo "Selected Xcode:"
           xcode-select -p
+          xcodebuild -version
 
       - name: Install XcodeGen
         shell: bash
         run: |
           set -euo pipefail
 
-          brew install xcodegen
+          if ! command -v xcodegen >/dev/null 2>&1; then
+            brew install xcodegen
+          fi
+
           xcodegen --version
 
       - name: Generate Xcode project
@@ -47,38 +51,50 @@ jobs:
         run: |
           set -euo pipefail
 
+          if [ ! -f "project.yml" ]; then
+            echo "Error: project.yml was not found in the repository root."
+            exit 1
+          fi
+
           xcodegen generate --spec project.yml
 
-          PROJECT_PATH="$(find . -maxdepth 3 \
-            -name '*.xcodeproj' -print -quit)"
+          PROJECT_PATH="$(find . -maxdepth 2 -type d -name '*.xcodeproj' -print -quit)"
 
           if [ -z "$PROJECT_PATH" ]; then
-            echo "::error::No Xcode project was generated."
+            echo "Error: XcodeGen did not produce an Xcode project."
             exit 1
           fi
 
           PROJECT_PATH="${PROJECT_PATH#./}"
+
           echo "PROJECT_PATH=$PROJECT_PATH" >> "$GITHUB_ENV"
 
+          echo "Generated project: $PROJECT_PATH"
           xcodebuild -list -project "$PROJECT_PATH"
 
-      - name: Build Radix with retry
+      - name: Create build directories
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p build/logs
+          mkdir -p build/crash-reports
+          mkdir -p build/ipas
+
+      - name: Build Radix
         shell: bash
         run: |
           set -uo pipefail
 
-          mkdir -p build/logs
+          MAX_ATTEMPTS=2
+          BUILD_SUCCEEDED=0
 
-          DERIVED_DATA="$PWD/build/DerivedData-Radix"
-          ATTEMPT=1
+          for ATTEMPT in $(seq 1 "$MAX_ATTEMPTS"); do
+            echo "Building Radix: attempt $ATTEMPT of $MAX_ATTEMPTS"
 
-          while [ "$ATTEMPT" -le 2 ]; do
-            LOG="$PWD/build/logs/Radix-attempt-$ATTEMPT.log"
-
-            echo "Building Radix: attempt $ATTEMPT of 2"
-
-            if [ "$ATTEMPT" -eq 2 ]; then
-              rm -rf "$DERIVED_DATA"
+            if [ "$ATTEMPT" -gt 1 ]; then
+              echo "Removing previous Radix DerivedData before retry."
+              rm -rf build/DerivedData-Radix
             fi
 
             set +e
@@ -89,51 +105,50 @@ jobs:
               -configuration Release \
               -sdk iphoneos \
               -destination 'generic/platform=iOS' \
-              -derivedDataPath "$DERIVED_DATA" \
+              -derivedDataPath "$GITHUB_WORKSPACE/build/DerivedData-Radix" \
               -jobs 1 \
               CODE_SIGNING_ALLOWED=NO \
-              build 2>&1 | tee "$LOG"
+              CLANG_ENABLE_MODULES=NO \
+              build \
+              2>&1 | tee "build/logs/Radix-attempt-${ATTEMPT}.log"
 
-            STATUS=${PIPESTATUS[0]}
+            BUILD_STATUS=${PIPESTATUS[0]}
 
             set -e
 
-            if [ "$STATUS" -eq 0 ]; then
-              exit 0
+            if [ "$BUILD_STATUS" -eq 0 ]; then
+              BUILD_SUCCEEDED=1
+              break
             fi
 
-            if ! grep -q \
-              "The Xcode build system has crashed" "$LOG"; then
-              echo "::error::Radix failed for a reason other than the known build-system crash."
-              exit "$STATUS"
-            fi
+            echo "Radix build attempt $ATTEMPT failed with exit code $BUILD_STATUS."
 
-            if [ "$ATTEMPT" -eq 2 ]; then
-              echo "::error::Xcode build service crashed twice while building Radix."
-              exit "$STATUS"
+            if [ "$ATTEMPT" -lt "$MAX_ATTEMPTS" ]; then
+              echo "Retrying Radix with fresh DerivedData."
             fi
-
-            echo "Xcode build service crashed. Retrying with fresh DerivedData."
-            ATTEMPT=$((ATTEMPT + 1))
           done
 
-      - name: Build hurr1c4ne with retry
+          if [ "$BUILD_SUCCEEDED" -ne 1 ]; then
+            echo "Error: Radix failed after $MAX_ATTEMPTS attempts."
+            exit 1
+          fi
+
+          echo "Radix built successfully."
+
+      - name: Build hurr1c4ne
         shell: bash
         run: |
           set -uo pipefail
 
-          mkdir -p build/logs
+          MAX_ATTEMPTS=2
+          BUILD_SUCCEEDED=0
 
-          DERIVED_DATA="$PWD/build/DerivedData-hurr1c4ne"
-          ATTEMPT=1
+          for ATTEMPT in $(seq 1 "$MAX_ATTEMPTS"); do
+            echo "Building hurr1c4ne: attempt $ATTEMPT of $MAX_ATTEMPTS"
 
-          while [ "$ATTEMPT" -le 2 ]; do
-            LOG="$PWD/build/logs/hurr1c4ne-attempt-$ATTEMPT.log"
-
-            echo "Building hurr1c4ne: attempt $ATTEMPT of 2"
-
-            if [ "$ATTEMPT" -eq 2 ]; then
-              rm -rf "$DERIVED_DATA"
+            if [ "$ATTEMPT" -gt 1 ]; then
+              echo "Removing previous hurr1c4ne DerivedData before retry."
+              rm -rf build/DerivedData-hurr1c4ne
             fi
 
             set +e
@@ -144,102 +159,89 @@ jobs:
               -configuration Release \
               -sdk iphoneos \
               -destination 'generic/platform=iOS' \
-              -derivedDataPath "$DERIVED_DATA" \
+              -derivedDataPath "$GITHUB_WORKSPACE/build/DerivedData-hurr1c4ne" \
               -jobs 1 \
               CODE_SIGNING_ALLOWED=NO \
-              build 2>&1 | tee "$LOG"
+              CLANG_ENABLE_MODULES=NO \
+              build \
+              2>&1 | tee "build/logs/hurr1c4ne-attempt-${ATTEMPT}.log"
 
-            STATUS=${PIPESTATUS[0]}
+            BUILD_STATUS=${PIPESTATUS[0]}
 
             set -e
 
-            if [ "$STATUS" -eq 0 ]; then
-              exit 0
+            if [ "$BUILD_STATUS" -eq 0 ]; then
+              BUILD_SUCCEEDED=1
+              break
             fi
 
-            if ! grep -q \
-              "The Xcode build system has crashed" "$LOG"; then
-              echo "::error::hurr1c4ne failed for a reason other than the known build-system crash."
-              exit "$STATUS"
-            fi
+            echo "hurr1c4ne build attempt $ATTEMPT failed with exit code $BUILD_STATUS."
 
-            if [ "$ATTEMPT" -eq 2 ]; then
-              echo "::error::Xcode build service crashed twice while building hurr1c4ne."
-              exit "$STATUS"
+            if [ "$ATTEMPT" -lt "$MAX_ATTEMPTS" ]; then
+              echo "Retrying hurr1c4ne with fresh DerivedData."
             fi
-
-            echo "Xcode build service crashed. Retrying with fresh DerivedData."
-            ATTEMPT=$((ATTEMPT + 1))
           done
+
+          if [ "$BUILD_SUCCEEDED" -ne 1 ]; then
+            echo "Error: hurr1c4ne failed after $MAX_ATTEMPTS attempts."
+            exit 1
+          fi
+
+          echo "hurr1c4ne built successfully."
 
       - name: Collect Xcode crash reports
         if: always()
         shell: bash
         run: |
-          set -uo pipefail
+          set -u
 
-          CRASH_DIR="$PWD/build/crash-reports"
-          mkdir -p "$CRASH_DIR"
+          mkdir -p build/crash-reports
 
-          REPORT_DIRS=(
-            "$HOME/Library/Logs/DiagnosticReports"
+          REPORT_COUNT=0
+
+          for REPORT_DIRECTORY in \
+            "$HOME/Library/Logs/DiagnosticReports" \
             "/Library/Logs/DiagnosticReports"
-          )
+          do
+            if [ -d "$REPORT_DIRECTORY" ]; then
+              while IFS= read -r -d '' REPORT; do
+                REPORT_NAME="$(basename "$REPORT")"
 
-          FOUND=0
-
-          for REPORT_DIR in "${REPORT_DIRS[@]}"; do
-            if [ ! -d "$REPORT_DIR" ]; then
-              continue
+                if cp -f "$REPORT" "build/crash-reports/$REPORT_NAME"; then
+                  echo "Collected crash report: $REPORT_NAME"
+                  REPORT_COUNT=$((REPORT_COUNT + 1))
+                fi
+              done < <(
+                find "$REPORT_DIRECTORY" \
+                  -type f \
+                  \( -name '*.crash' -o -name '*.ips' \) \
+                  -mmin -360 \
+                  -print0
+              )
             fi
-
-            echo "Checking crash reports in: $REPORT_DIR"
-
-            while IFS= read -r -d '' REPORT; do
-              FOUND=1
-
-              DESTINATION="$CRASH_DIR/$(basename "$REPORT")"
-
-              if [ -e "$DESTINATION" ]; then
-                DESTINATION="$CRASH_DIR/$(basename "$REPORT_DIR")-$(basename "$REPORT")"
-              fi
-
-              if cp "$REPORT" "$DESTINATION"; then
-                echo "Collected: $(basename "$REPORT")"
-              else
-                echo "::warning::Could not copy crash report: $REPORT"
-              fi
-            done < <(
-              find "$REPORT_DIR" \
-                -type f \
-                \( -name '*.crash' -o -name '*.ips' \) \
-                -mmin -360 \
-                -print0 2>/dev/null
-            )
           done
 
-          if [ "$FOUND" -eq 0 ]; then
-            echo "No recent .crash or .ips reports were found."
-          fi
-
           {
-            echo "Crash report collection time:"
-            date
+            echo "Collection date: $(date -u '+%Y-%m-%dT%H:%M:%SZ')"
             echo
             echo "Xcode version:"
-            xcodebuild -version
+            xcodebuild -version 2>&1 || true
             echo
             echo "Selected developer directory:"
-            xcode-select -p
+            xcode-select -p 2>&1 || true
             echo
-            echo "Crash report files collected:"
-            find "$CRASH_DIR" \
+            echo "Crash reports collected: $REPORT_COUNT"
+            echo
+            echo "Collected report files:"
+
+            find build/crash-reports \
               -maxdepth 1 \
               -type f \
+              ! -name 'collection-info.txt' \
               -print
-          } > "$CRASH_DIR/collection-info.txt"
+          } > build/crash-reports/collection-info.txt
 
-          echo "Crash report collection finished."
+          echo "Crash-report collection finished."
 
       - name: Package unsigned IPAs
         if: success()
@@ -247,42 +249,47 @@ jobs:
         run: |
           set -euo pipefail
 
-          mkdir -p build/ipas
+          package_ipa() {
+            APP_NAME="$1"
+            APP_PATH="$2"
+            IPA_PATH="build/ipas/${APP_NAME}-unsigned.ipa"
+            TEMP_DIRECTORY="build/ipa-staging/${APP_NAME}"
 
-          package_app() {
-            local app_path="$1"
-            local app_name
-            local staging
-
-            if [ ! -d "$app_path" ]; then
-              echo "::error::App bundle not found: $app_path"
+            if [ ! -d "$APP_PATH" ]; then
+              echo "Error: application bundle not found: $APP_PATH"
               return 1
             fi
 
-            app_name="$(basename "$app_path" .app)"
-            staging="$PWD/build/ipa-staging-$app_name"
+            rm -rf "$TEMP_DIRECTORY"
+            mkdir -p "$TEMP_DIRECTORY/Payload"
 
-            rm -rf "$staging"
-            mkdir -p "$staging/Payload"
-
-            cp -R "$app_path" "$staging/Payload/"
+            cp -R "$APP_PATH" "$TEMP_DIRECTORY/Payload/"
 
             (
-              cd "$staging"
-
+              cd "$TEMP_DIRECTORY"
               /usr/bin/zip -qry \
-                "$GITHUB_WORKSPACE/build/ipas/$app_name-unsigned.ipa" \
+                "$GITHUB_WORKSPACE/$IPA_PATH" \
                 Payload
             )
+
+            if [ ! -s "$IPA_PATH" ]; then
+              echo "Error: IPA packaging failed for $APP_NAME."
+              return 1
+            fi
+
+            echo "Created $IPA_PATH"
+            /usr/bin/ls -lh "$IPA_PATH"
           }
 
-          package_app \
+          package_ipa \
+            "Radix" \
             "build/DerivedData-Radix/Build/Products/Release-iphoneos/Radix.app"
 
-          package_app \
+          package_ipa \
+            "hurr1c4ne" \
             "build/DerivedData-hurr1c4ne/Build/Products/Release-iphoneos/hurr1c4ne.app"
 
-      - name: Upload diagnostics and IPAs
+      - name: Upload build diagnostics and apps
         if: always()
         uses: actions/upload-artifact@v4
         with:
