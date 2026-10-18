@@ -21,7 +21,7 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Select Xcode and locate project
+      - name: Select Xcode
         shell: bash
         run: |
           set -euo pipefail
@@ -33,31 +33,45 @@ jobs:
 
           xcodebuild -version
 
-          echo "Searching for Xcode projects and workspaces..."
-          find . -maxdepth 5 \
-            \( -name "*.xcodeproj" -o -name "*.xcworkspace" \) \
-            -print
+      - name: Install XcodeGen
+        shell: bash
+        run: |
+          set -euo pipefail
 
-          PROJECT_PATH="$(find . -maxdepth 5 -name "*.xcodeproj" -print -quit)"
+          brew install xcodegen
+          xcodegen --version
+
+      - name: Generate Xcode project
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ ! -f project.yml ]; then
+            echo "::error::project.yml was not found in the repository root."
+            exit 1
+          fi
+
+          xcodegen generate --spec project.yml
+
+          PROJECT_PATH="$(find . -maxdepth 3 \
+            -name '*.xcodeproj' -print -quit)"
 
           if [ -z "$PROJECT_PATH" ]; then
-            echo "::error::No .xcodeproj found in the repository."
-            echo "Repository root contents:"
-            ls -la
+            echo "::error::XcodeGen did not generate an Xcode project."
             exit 1
           fi
 
           PROJECT_PATH="${PROJECT_PATH#./}"
 
-          echo "Found project: $PROJECT_PATH"
           echo "PROJECT_PATH=$PROJECT_PATH" >> "$GITHUB_ENV"
 
+          echo "Generated project: $PROJECT_PATH"
           xcodebuild -list -project "$PROJECT_PATH"
 
       - name: Build Radix
         shell: bash
         run: |
-          set -euo pipefail
+          set -o pipefail
 
           mkdir -p build/logs
 
@@ -76,7 +90,7 @@ jobs:
       - name: Build hurr1c4ne
         shell: bash
         run: |
-          set -euo pipefail
+          set -o pipefail
 
           mkdir -p build/logs
 
@@ -115,10 +129,12 @@ jobs:
 
             rm -rf "$staging"
             mkdir -p "$staging/Payload"
+
             cp -R "$app_path" "$staging/Payload/"
 
             (
               cd "$staging"
+
               /usr/bin/zip -qry \
                 "$GITHUB_WORKSPACE/build/ipas/$app_name-unsigned.ipa" \
                 Payload
@@ -131,7 +147,7 @@ jobs:
           package_app \
             "build/DerivedData-hurr1c4ne/Build/Products/Release-iphoneos/hurr1c4ne.app"
 
-      - name: Upload build logs and app artifacts
+      - name: Upload build diagnostics and IPAs
         if: always()
         uses: actions/upload-artifact@v4
         with:
