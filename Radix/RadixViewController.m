@@ -709,7 +709,7 @@ typedef NS_ENUM(NSInteger, RXTab) {
 
         case RXTabSources: {
             UIView *container = [self makeSectionHeaderWithTitle:@"Your repositories"
-                                                        subtitle:@"Repository indexes provide package information."];
+                                                        subtitle:@"Add APT repositories or choose a recommended source."];
 
             UIButton *addButton = [UIButton buttonWithType:UIButtonTypeSystem];
             addButton.frame = CGRectMake(0, 0, 0, 0);
@@ -725,11 +725,26 @@ typedef NS_ENUM(NSInteger, RXTab) {
 
             [container addSubview:addButton];
 
+            UIButton *recommendedButton = [UIButton buttonWithType:UIButtonTypeSystem];
+            recommendedButton.translatesAutoresizingMaskIntoConstraints = NO;
+            recommendedButton.backgroundColor = RXCardColor();
+            recommendedButton.layer.cornerRadius = 10.0;
+            [recommendedButton setTitle:@"Recommended" forState:UIControlStateNormal];
+            [recommendedButton setTitleColor:RXAccentColor() forState:UIControlStateNormal];
+            recommendedButton.titleLabel.font = [UIFont systemFontOfSize:12.0 weight:UIFontWeightSemibold];
+            [recommendedButton addTarget:self action:@selector(recommendedSourcesPressed)
+                        forControlEvents:UIControlEventTouchUpInside];
+            [container addSubview:recommendedButton];
+
             [NSLayoutConstraint activateConstraints:@[
                 [addButton.trailingAnchor constraintEqualToAnchor:container.trailingAnchor constant:-20.0],
                 [addButton.centerYAnchor constraintEqualToAnchor:container.centerYAnchor],
                 [addButton.widthAnchor constraintEqualToConstant:112.0],
-                [addButton.heightAnchor constraintEqualToConstant:34.0]
+                [addButton.heightAnchor constraintEqualToConstant:34.0],
+                [recommendedButton.trailingAnchor constraintEqualToLeadingAnchor:addButton.leadingAnchor constant:-7.0],
+                [recommendedButton.centerYAnchor constraintEqualToAnchor:container.centerYAnchor],
+                [recommendedButton.widthAnchor constraintEqualToConstant:104.0],
+                [recommendedButton.heightAnchor constraintEqualToConstant:34.0]
             ]];
 
             header = container;
@@ -879,11 +894,11 @@ typedef NS_ENUM(NSInteger, RXTab) {
 - (void)addSourcePressed {
     UIAlertController *alert = [UIAlertController
         alertControllerWithTitle:@"Add Repository"
-                         message:@"Enter a direct URL to a Debian Packages index file. For example, a repository's Packages file—not just its homepage."
+                         message:@"Enter an APT repository URL or a direct Packages index URL. Radix will try common index locations."
                   preferredStyle:UIAlertControllerStyleAlert];
 
     [alert addTextFieldWithConfigurationHandler:^(UITextField *textField) {
-        textField.placeholder = @"https://example.com/Packages";
+        textField.placeholder = @"https://repo.example.com/";
         textField.keyboardType = UIKeyboardTypeURL;
         textField.autocapitalizationType = UITextAutocapitalizationTypeNone;
         textField.autocorrectionType = UITextAutocorrectionTypeNo;
@@ -951,6 +966,48 @@ typedef NS_ENUM(NSInteger, RXTab) {
         [strongSelf refreshSource:source];
     }]];
 
+    [self presentViewController:alert animated:YES completion:nil];
+}
+
+- (void)recommendedSourcesPressed {
+    NSArray<NSDictionary *> *recommended = @[
+        @{@"name": @"Procursus", @"url": @"https://apt.procurs.us/"},
+        @{@"name": @"Havoc", @"url": @"https://havoc.app/"},
+        @{@"name": @"Chariz", @"url": @"https://repo.chariz.com/"},
+        @{@"name": @"opa334", @"url": @"https://opa334.github.io/"},
+        @{@"name": @"BigBoss", @"url": @"http://apt.thebigboss.org/repofiles/cydia/"}
+    ];
+
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Recommended Sources"
+        message:@"Choose a repository to add. Availability and package compatibility depend on the target jailbreak environment."
+        preferredStyle:UIAlertControllerStyleActionSheet];
+
+    __weak typeof(self) weakSelf = self;
+    for (NSDictionary *entry in recommended) {
+        NSString *name = entry[@"name"];
+        NSString *url = entry[@"url"];
+        [alert addAction:[UIAlertAction actionWithTitle:[NSString stringWithFormat:@"Add %@", name]
+            style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+                __strong typeof(weakSelf) strongSelf = weakSelf;
+                if (!strongSelf) return;
+                for (NSDictionary *existing in strongSelf.sources) {
+                    if ([existing[@"url"] isEqualToString:url]) {
+                        [strongSelf showMessage:@"Already Added" message:[NSString stringWithFormat:@"%@ is already in your sources.", name]];
+                        return;
+                    }
+                }
+                NSDictionary *source = @{ @"name": name, @"url": url, @"status": @"Not refreshed" };
+                [strongSelf.sources addObject:source];
+                [strongSelf saveSources];
+                [strongSelf.tableView reloadData];
+                [strongSelf refreshSource:source];
+            }]];
+    }
+    [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
+    if (UI_USER_INTERFACE_IDIOM() == UIUserInterfaceIdiomPad) {
+        alert.popoverPresentationController.sourceView = self.view;
+        alert.popoverPresentationController.sourceRect = CGRectMake(CGRectGetMidX(self.view.bounds), CGRectGetMidY(self.view.bounds), 1, 1);
+    }
     [self presentViewController:alert animated:YES completion:nil];
 }
 
