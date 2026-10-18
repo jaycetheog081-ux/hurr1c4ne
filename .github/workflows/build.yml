@@ -32,11 +32,13 @@ jobs:
           fi
 
           xcodebuild -version
+          xcode-select -p
 
       - name: Install XcodeGen
         shell: bash
         run: |
           set -euo pipefail
+
           brew install xcodegen
           xcodegen --version
 
@@ -170,6 +172,75 @@ jobs:
             ATTEMPT=$((ATTEMPT + 1))
           done
 
+      - name: Collect Xcode crash reports
+        if: always()
+        shell: bash
+        run: |
+          set -uo pipefail
+
+          CRASH_DIR="$PWD/build/crash-reports"
+          mkdir -p "$CRASH_DIR"
+
+          REPORT_DIRS=(
+            "$HOME/Library/Logs/DiagnosticReports"
+            "/Library/Logs/DiagnosticReports"
+          )
+
+          FOUND=0
+
+          for REPORT_DIR in "${REPORT_DIRS[@]}"; do
+            if [ ! -d "$REPORT_DIR" ]; then
+              continue
+            fi
+
+            echo "Checking crash reports in: $REPORT_DIR"
+
+            while IFS= read -r -d '' REPORT; do
+              FOUND=1
+
+              DESTINATION="$CRASH_DIR/$(basename "$REPORT")"
+
+              if [ -e "$DESTINATION" ]; then
+                DESTINATION="$CRASH_DIR/$(basename "$REPORT_DIR")-$(basename "$REPORT")"
+              fi
+
+              if cp "$REPORT" "$DESTINATION"; then
+                echo "Collected: $(basename "$REPORT")"
+              else
+                echo "::warning::Could not copy crash report: $REPORT"
+              fi
+            done < <(
+              find "$REPORT_DIR" \
+                -type f \
+                \( -name '*.crash' -o -name '*.ips' \) \
+                -mmin -360 \
+                -print0 2>/dev/null
+            )
+          done
+
+          if [ "$FOUND" -eq 0 ]; then
+            echo "No recent .crash or .ips reports were found."
+          fi
+
+          {
+            echo "Crash report collection time:"
+            date
+            echo
+            echo "Xcode version:"
+            xcodebuild -version
+            echo
+            echo "Selected developer directory:"
+            xcode-select -p
+            echo
+            echo "Crash report files collected:"
+            find "$CRASH_DIR" \
+              -maxdepth 1 \
+              -type f \
+              -print
+          } > "$CRASH_DIR/collection-info.txt"
+
+          echo "Crash report collection finished."
+
       - name: Package unsigned IPAs
         if: success()
         shell: bash
@@ -218,6 +289,7 @@ jobs:
           name: ios-build-diagnostics-and-apps
           path: |
             build/logs/
+            build/crash-reports/
             build/ipas/
           if-no-files-found: warn
           retention-days: 14
