@@ -37,7 +37,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-
           brew install xcodegen
           xcodegen --version
 
@@ -46,23 +45,17 @@ jobs:
         run: |
           set -euo pipefail
 
-          if [ ! -f project.yml ]; then
-            echo "::error::project.yml was not found in the repository root."
-            exit 1
-          fi
-
           xcodegen generate --spec project.yml
 
           PROJECT_PATH="$(find . -maxdepth 3 \
             -name '*.xcodeproj' -print -quit)"
 
           if [ -z "$PROJECT_PATH" ]; then
-            echo "::error::XcodeGen did not generate an Xcode project."
+            echo "::error::No Xcode project was generated."
             exit 1
           fi
 
           PROJECT_PATH="${PROJECT_PATH#./}"
-
           echo "PROJECT_PATH=$PROJECT_PATH" >> "$GITHUB_ENV"
 
           echo "Generated project: $PROJECT_PATH"
@@ -71,7 +64,7 @@ jobs:
       - name: Build Radix
         shell: bash
         run: |
-          set -o pipefail
+          set -euo pipefail
 
           mkdir -p build/logs
 
@@ -82,7 +75,6 @@ jobs:
             -sdk iphoneos \
             -destination 'generic/platform=iOS' \
             -derivedDataPath "$PWD/build/DerivedData-Radix" \
-            -parallelizeTargets NO \
             -jobs 1 \
             CODE_SIGNING_ALLOWED=NO \
             build 2>&1 | tee build/logs/Radix-build.log
@@ -90,7 +82,7 @@ jobs:
       - name: Build hurr1c4ne
         shell: bash
         run: |
-          set -o pipefail
+          set -euo pipefail
 
           mkdir -p build/logs
 
@@ -101,7 +93,6 @@ jobs:
             -sdk iphoneos \
             -destination 'generic/platform=iOS' \
             -derivedDataPath "$PWD/build/DerivedData-hurr1c4ne" \
-            -parallelizeTargets NO \
             -jobs 1 \
             CODE_SIGNING_ALLOWED=NO \
             build 2>&1 | tee build/logs/hurr1c4ne-build.log
@@ -129,12 +120,10 @@ jobs:
 
             rm -rf "$staging"
             mkdir -p "$staging/Payload"
-
             cp -R "$app_path" "$staging/Payload/"
 
             (
               cd "$staging"
-
               /usr/bin/zip -qry \
                 "$GITHUB_WORKSPACE/build/ipas/$app_name-unsigned.ipa" \
                 Payload
@@ -147,7 +136,7 @@ jobs:
           package_app \
             "build/DerivedData-hurr1c4ne/Build/Products/Release-iphoneos/hurr1c4ne.app"
 
-      - name: Upload build diagnostics and IPAs
+      - name: Upload build logs and IPAs
         if: always()
         uses: actions/upload-artifact@v4
         with:
