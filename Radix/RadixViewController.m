@@ -1,6 +1,10 @@
-#import "RadixViewController.h"
+import "RadixViewController.h"
 
 #import <UIKit/UIKit.h>
+#import <zlib.h>
+#import <limits.h>
+#import <dlfcn.h>
+#import <string.h>
 
 #pragma mark - Radix Appearance
 
@@ -710,19 +714,19 @@ typedef NS_ENUM(NSInteger, RXTab) {
         case RXTabSources: {
             UIView *container = [self makeSectionHeaderWithTitle:@"Your repositories"
                                                         subtitle:@"Add APT repositories or choose a recommended source."];
+            CGRect frame = container.frame;
+            frame.size.height = 112.0;
+            container.frame = frame;
 
             UIButton *addButton = [UIButton buttonWithType:UIButtonTypeSystem];
-            addButton.frame = CGRectMake(0, 0, 0, 0);
             addButton.translatesAutoresizingMaskIntoConstraints = NO;
             addButton.backgroundColor = RXAccentColor();
             addButton.layer.cornerRadius = 10.0;
             [addButton setTitle:@"＋ Add Source" forState:UIControlStateNormal];
             [addButton setTitleColor:RXBackgroundColor() forState:UIControlStateNormal];
             addButton.titleLabel.font = [UIFont systemFontOfSize:12.0 weight:UIFontWeightBold];
-            [addButton addTarget:self
-                          action:@selector(addSourcePressed)
+            [addButton addTarget:self action:@selector(addSourcePressed)
                 forControlEvents:UIControlEventTouchUpInside];
-
             [container addSubview:addButton];
 
             UIButton *recommendedButton = [UIButton buttonWithType:UIButtonTypeSystem];
@@ -733,17 +737,17 @@ typedef NS_ENUM(NSInteger, RXTab) {
             [recommendedButton setTitleColor:RXAccentColor() forState:UIControlStateNormal];
             recommendedButton.titleLabel.font = [UIFont systemFontOfSize:12.0 weight:UIFontWeightSemibold];
             [recommendedButton addTarget:self action:@selector(recommendedSourcesPressed)
-                        forControlEvents:UIControlEventTouchUpInside];
+                forControlEvents:UIControlEventTouchUpInside];
             [container addSubview:recommendedButton];
 
             [NSLayoutConstraint activateConstraints:@[
-                [addButton.trailingAnchor constraintEqualToAnchor:container.trailingAnchor constant:-20.0],
-                [addButton.centerYAnchor constraintEqualToAnchor:container.centerYAnchor],
+                [addButton.leadingAnchor constraintEqualToAnchor:container.leadingAnchor constant:22.0],
+                [addButton.topAnchor constraintEqualToAnchor:container.topAnchor constant:70.0],
                 [addButton.widthAnchor constraintEqualToConstant:112.0],
                 [addButton.heightAnchor constraintEqualToConstant:34.0],
-                [recommendedButton.trailingAnchor constraintEqualToLeadingAnchor:addButton.leadingAnchor constant:-7.0],
-                [recommendedButton.centerYAnchor constraintEqualToAnchor:container.centerYAnchor],
-                [recommendedButton.widthAnchor constraintEqualToConstant:104.0],
+                [recommendedButton.leadingAnchor constraintEqualToAnchor:addButton.trailingAnchor constant:8.0],
+                [recommendedButton.centerYAnchor constraintEqualToAnchor:addButton.centerYAnchor],
+                [recommendedButton.widthAnchor constraintEqualToConstant:112.0],
                 [recommendedButton.heightAnchor constraintEqualToConstant:34.0]
             ]];
 
@@ -1030,91 +1034,170 @@ typedef NS_ENUM(NSInteger, RXTab) {
 
 - (void)refreshSource:(NSDictionary *)source {
     NSString *urlString = source[@"url"];
+    if (![urlString isKindOfClass:[NSString class]]) return;
 
-    if (![urlString isKindOfClass:[NSString class]]) {
-        return;
+    NSURL *baseURL = [NSURL URLWithString:urlString];
+    if (!baseURL) return;
+
+    NSMutableArray<NSURL *> *candidates = [NSMutableArray array];
+    NSString *path = baseURL.path ?: @"";
+    BOOL looksLikeIndex = [path hasSuffix:@"/Packages"] || [path hasSuffix:@"/Packages.gz"] ||
+                          [path hasSuffix:@"/Packages.xz"];
+    if (looksLikeIndex) {
+        [candidates addObject:baseURL];
+        if ([path hasSuffix:@"/Packages"]) {
+            [candidates addObject:[NSURL URLWithString:[urlString stringByAppendingString:@".gz"]]];
+            [candidates addObject:[NSURL URLWithString:[urlString stringByAppendingString:@".xz"]]];
+        }
+    } else {
+        NSString *root = [urlString hasSuffix:@"/"] ? urlString : [urlString stringByAppendingString:@"/"];
+        NSArray<NSString *> *relativePaths = @[
+            @"Packages", @"Packages.gz",
+            @"dists/stable/main/binary-iphoneos-arm/Packages",
+            @"dists/stable/main/binary-iphoneos-arm/Packages.gz",
+            @"dists/stable/main/binary-iphoneos-arm64/Packages",
+            @"dists/stable/main/binary-iphoneos-arm64/Packages.gz",
+            @"dists/stable/main/binary-arm64/Packages",
+            @"dists/stable/main/binary-arm64/Packages.gz",
+            @"dists/unstable/main/binary-iphoneos-arm/Packages",
+            @"dists/unstable/main/binary-iphoneos-arm/Packages.gz",
+            @"dists/unstable/main/binary-iphoneos-arm64/Packages",
+            @"dists/unstable/main/binary-iphoneos-arm64/Packages.gz",
+            @"dists/iphoneos-arm64/main/binary-iphoneos-arm64/Packages",
+            @"dists/iphoneos-arm64/main/binary-iphoneos-arm64/Packages.gz"
+        ];
+        for (NSString *relative in relativePaths) {
+            NSURL *candidate = [NSURL URLWithString:[root stringByAppendingString:relative]];
+            if (candidate) [candidates addObject:candidate];
+        }
     }
 
-    NSURL *url = [NSURL URLWithString:urlString];
-    if (!url) {
+    NSMutableArray<NSURL *> *validCandidates = [NSMutableArray array];
+    for (NSURL *candidate in candidates) if (candidate) [validCandidates addObject:candidate];
+    if (validCandidates.count == 0) {
+        [self updateSource:source status:@"Invalid repository URL"];
+        [self.tableView reloadData];
         return;
     }
-
-    NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url];
-    request.timeoutInterval = 45.0;
-    [request setValue:@"Radix/1.0" forHTTPHeaderField:@"User-Agent"];
 
     self.isRefreshing = YES;
-    [self.refreshButton setImage:[UIImage systemImageNamed:@"arrow.clockwise"]
-                        forState:UIControlStateNormal];
+    [self.refreshButton setImage:[UIImage systemImageNamed:@"arrow.clockwise"] forState:UIControlStateNormal];
 
-    NSURLSessionDataTask *task = [[NSURLSession sharedSession]
-        dataTaskWithRequest:request
-          completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
-
-        NSHTTPURLResponse *httpResponse = (NSHTTPURLResponse *)response;
-
-        if (error || !data || (httpResponse && httpResponse.statusCode >= 400)) {
+    __block NSUInteger candidateIndex = 0;
+    __weak typeof(self) weakSelf = self;
+    __block void (^tryNextCandidate)(void);
+    tryNextCandidate = ^{
+        __strong typeof(weakSelf) strongSelf = weakSelf;
+        if (!strongSelf) return;
+        if (candidateIndex >= validCandidates.count) {
+            tryNextCandidate = nil;
             dispatch_async(dispatch_get_main_queue(), ^{
-                [self updateSource:source
-                            status:(error.localizedDescription ?: @"Unable to load index")];
-
-                self.isRefreshing = NO;
-                [self.tableView reloadData];
-                [self updateEmptyState];
-
-                [self showMessage:@"Repository refresh failed"
-                          message:error.localizedDescription ?: @"The server returned an unsuccessful response."];
+                [strongSelf updateSource:source status:@"No readable Packages index found"];
+                strongSelf.isRefreshing = NO;
+                [strongSelf.tableView reloadData];
+                [strongSelf showMessage:@"Repository refresh failed"
+                                message:@"Radix checked common APT index locations but couldn't find a readable Packages index. Some repositories use unsupported Packages.xz indexes or require a distribution/component path. Add the direct Packages URL if available."];
             });
             return;
         }
 
-        NSString *contents = [[NSString alloc] initWithData:data
-                                                   encoding:NSUTF8StringEncoding];
+        NSURL *indexURL = validCandidates[candidateIndex++];
+        NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:indexURL];
+        request.timeoutInterval = 20.0;
+        [request setValue:@"Radix/1.0" forHTTPHeaderField:@"User-Agent"];
+        NSURLSessionDataTask *task = [[NSURLSession sharedSession] dataTaskWithRequest:request
+            completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+                NSHTTPURLResponse *http = (NSHTTPURLResponse *)response;
+                if (error || !data || (http && (http.statusCode < 200 || http.statusCode >= 300))) {
+                    tryNextCandidate();
+                    return;
+                }
 
-        if (!contents) {
-            contents = [[NSString alloc] initWithData:data
-                                              encoding:NSISOLatin1StringEncoding];
+                NSData *decodedData = data;
+                NSString *candidatePath = indexURL.path.lowercaseString;
+                if ([candidatePath hasSuffix:@".gz"] ||
+                    (data.length >= 2 && ((const uint8_t *)data.bytes)[0] == 0x1f && ((const uint8_t *)data.bytes)[1] == 0x8b)) {
+                    decodedData = [strongSelf decompressGzipData:data];
+                }
+                NSString *contents = decodedData ? [[NSString alloc] initWithData:decodedData encoding:NSUTF8StringEncoding] : nil;
+                if (!contents && decodedData) contents = [[NSString alloc] initWithData:decodedData encoding:NSISOLatin1StringEncoding];
+                if (!contents || [contents rangeOfString:@"<html" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+                    tryNextCandidate();
+                    return;
+                }
+
+                NSArray<NSDictionary *> *parsed = [strongSelf parsePackagesIndex:contents sourceURL:baseURL];
+                if (parsed.count == 0) {
+                    tryNextCandidate();
+                    return;
+                }
+
+                tryNextCandidate = nil;
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    [strongSelf mergePackages:parsed];
+                    [strongSelf updateSource:source status:[NSString stringWithFormat:@"%lu packages", (unsigned long)parsed.count]];
+                    strongSelf.isRefreshing = NO;
+                    [strongSelf updateTabSubtitle];
+                    [strongSelf updateTableHeader];
+                    [strongSelf updateEmptyState];
+                    [strongSelf.tableView reloadData];
+                    if (strongSelf.selectedTab == RXTabSources) {
+                        [strongSelf showMessage:@"Repository refreshed"
+                                        message:[NSString stringWithFormat:@"Loaded %lu packages from %@", (unsigned long)parsed.count, indexURL.lastPathComponent ?: @"Packages"]];
+                    }
+                });
+            }];
+        [task resume];
+    };
+    tryNextCandidate();
+}
+
+- (NSData *)decompressGzipData:(NSData *)data {
+    if (data.length == 0) return nil;
+
+    // Resolve zlib at runtime so this controller does not require an additional
+    // Xcode linker setting just to read compressed APT indexes.
+    static void *zlibHandle = NULL;
+    static int (*inflateInit2Function)(z_streamp, int, const char *, int) = NULL;
+    static int (*inflateFunction)(z_streamp, int) = NULL;
+    static int (*inflateEndFunction)(z_streamp) = NULL;
+    static const char *(*zlibVersionFunction)(void) = NULL;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        zlibHandle = dlopen("/usr/lib/libz.1.dylib", RTLD_LAZY);
+        if (!zlibHandle) zlibHandle = dlopen("/usr/lib/libz.dylib", RTLD_LAZY);
+        if (zlibHandle) {
+            inflateInit2Function = dlsym(zlibHandle, "inflateInit2_");
+            inflateFunction = dlsym(zlibHandle, "inflate");
+            inflateEndFunction = dlsym(zlibHandle, "inflateEnd");
+            zlibVersionFunction = dlsym(zlibHandle, "zlibVersion");
         }
+    });
+    if (!inflateInit2Function || !inflateFunction || !inflateEndFunction || !zlibVersionFunction) return nil;
 
-        if (!contents) {
-            dispatch_async(dispatch_get_main_queue(), ^{
-                [self updateSource:source status:@"Index is not readable text"];
-                self.isRefreshing = NO;
-                [self.tableView reloadData];
+    z_stream stream;
+    memset(&stream, 0, sizeof(stream));
+    stream.next_in = (Bytef *)data.bytes;
+    stream.avail_in = (uInt)MIN(data.length, UINT_MAX);
 
-                [self showMessage:@"Unsupported index"
-                          message:@"The repository response could not be decoded as a Debian package index."];
-            });
-            return;
+    if (inflateInit2Function(&stream, 16 + MAX_WBITS, zlibVersionFunction(), (int)sizeof(stream)) != Z_OK) return nil;
+
+    NSMutableData *output = [NSMutableData dataWithLength:MAX(data.length * 4, 65536)];
+    int result = Z_OK;
+    while (result == Z_OK) {
+        if (stream.total_out >= output.length) {
+            [output increaseLengthBy:MAX(output.length, (NSUInteger)65536)];
         }
+        stream.next_out = (Bytef *)output.mutableBytes + stream.total_out;
+        stream.avail_out = (uInt)MIN(output.length - stream.total_out, UINT_MAX);
+        result = inflateFunction(&stream, Z_NO_FLUSH);
+    }
 
-        NSArray<NSDictionary *> *parsedPackages = [self parsePackagesIndex:contents
-                                                                  sourceURL:url];
-
-        dispatch_async(dispatch_get_main_queue(), ^{
-            [self mergePackages:parsedPackages];
-
-            [self updateSource:source
-                        status:[NSString stringWithFormat:@"%lu packages",
-                                (unsigned long)parsedPackages.count]];
-
-            self.isRefreshing = NO;
-
-            [self updateTabSubtitle];
-            [self updateTableHeader];
-            [self updateEmptyState];
-            [self.tableView reloadData];
-
-            if (self.selectedTab == RXTabSources) {
-                [self showMessage:@"Repository refreshed"
-                          message:[NSString stringWithFormat:@"Read %lu package records.",
-                                   (unsigned long)parsedPackages.count]];
-            }
-        });
-    }];
-
-    [task resume];
+    NSUInteger decodedLength = (NSUInteger)stream.total_out;
+    inflateEndFunction(&stream);
+    if (result != Z_STREAM_END || decodedLength == 0) return nil;
+    output.length = decodedLength;
+    return output;
 }
 
 - (void)updateSource:(NSDictionary *)source status:(NSString *)status {
