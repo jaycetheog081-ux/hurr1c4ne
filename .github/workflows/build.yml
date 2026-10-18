@@ -58,44 +58,117 @@ jobs:
           PROJECT_PATH="${PROJECT_PATH#./}"
           echo "PROJECT_PATH=$PROJECT_PATH" >> "$GITHUB_ENV"
 
-          echo "Generated project: $PROJECT_PATH"
           xcodebuild -list -project "$PROJECT_PATH"
 
-      - name: Build Radix
+      - name: Build Radix with retry
         shell: bash
         run: |
-          set -euo pipefail
+          set -uo pipefail
 
           mkdir -p build/logs
 
-          xcodebuild \
-            -project "$PROJECT_PATH" \
-            -scheme Radix \
-            -configuration Release \
-            -sdk iphoneos \
-            -destination 'generic/platform=iOS' \
-            -derivedDataPath "$PWD/build/DerivedData-Radix" \
-            -jobs 1 \
-            CODE_SIGNING_ALLOWED=NO \
-            build 2>&1 | tee build/logs/Radix-build.log
+          DERIVED_DATA="$PWD/build/DerivedData-Radix"
+          ATTEMPT=1
 
-      - name: Build hurr1c4ne
+          while [ "$ATTEMPT" -le 2 ]; do
+            LOG="$PWD/build/logs/Radix-attempt-$ATTEMPT.log"
+
+            echo "Building Radix: attempt $ATTEMPT of 2"
+
+            if [ "$ATTEMPT" -eq 2 ]; then
+              rm -rf "$DERIVED_DATA"
+            fi
+
+            set +e
+
+            xcodebuild \
+              -project "$PROJECT_PATH" \
+              -scheme Radix \
+              -configuration Release \
+              -sdk iphoneos \
+              -destination 'generic/platform=iOS' \
+              -derivedDataPath "$DERIVED_DATA" \
+              -jobs 1 \
+              CODE_SIGNING_ALLOWED=NO \
+              build 2>&1 | tee "$LOG"
+
+            STATUS=${PIPESTATUS[0]}
+
+            set -e
+
+            if [ "$STATUS" -eq 0 ]; then
+              exit 0
+            fi
+
+            if ! grep -q \
+              "The Xcode build system has crashed" "$LOG"; then
+              echo "::error::Radix failed for a reason other than the known build-system crash."
+              exit "$STATUS"
+            fi
+
+            if [ "$ATTEMPT" -eq 2 ]; then
+              echo "::error::Xcode build service crashed twice while building Radix."
+              exit "$STATUS"
+            fi
+
+            echo "Xcode build service crashed. Retrying with fresh DerivedData."
+            ATTEMPT=$((ATTEMPT + 1))
+          done
+
+      - name: Build hurr1c4ne with retry
         shell: bash
         run: |
-          set -euo pipefail
+          set -uo pipefail
 
           mkdir -p build/logs
 
-          xcodebuild \
-            -project "$PROJECT_PATH" \
-            -scheme hurr1c4ne \
-            -configuration Release \
-            -sdk iphoneos \
-            -destination 'generic/platform=iOS' \
-            -derivedDataPath "$PWD/build/DerivedData-hurr1c4ne" \
-            -jobs 1 \
-            CODE_SIGNING_ALLOWED=NO \
-            build 2>&1 | tee build/logs/hurr1c4ne-build.log
+          DERIVED_DATA="$PWD/build/DerivedData-hurr1c4ne"
+          ATTEMPT=1
+
+          while [ "$ATTEMPT" -le 2 ]; do
+            LOG="$PWD/build/logs/hurr1c4ne-attempt-$ATTEMPT.log"
+
+            echo "Building hurr1c4ne: attempt $ATTEMPT of 2"
+
+            if [ "$ATTEMPT" -eq 2 ]; then
+              rm -rf "$DERIVED_DATA"
+            fi
+
+            set +e
+
+            xcodebuild \
+              -project "$PROJECT_PATH" \
+              -scheme hurr1c4ne \
+              -configuration Release \
+              -sdk iphoneos \
+              -destination 'generic/platform=iOS' \
+              -derivedDataPath "$DERIVED_DATA" \
+              -jobs 1 \
+              CODE_SIGNING_ALLOWED=NO \
+              build 2>&1 | tee "$LOG"
+
+            STATUS=${PIPESTATUS[0]}
+
+            set -e
+
+            if [ "$STATUS" -eq 0 ]; then
+              exit 0
+            fi
+
+            if ! grep -q \
+              "The Xcode build system has crashed" "$LOG"; then
+              echo "::error::hurr1c4ne failed for a reason other than the known build-system crash."
+              exit "$STATUS"
+            fi
+
+            if [ "$ATTEMPT" -eq 2 ]; then
+              echo "::error::Xcode build service crashed twice while building hurr1c4ne."
+              exit "$STATUS"
+            fi
+
+            echo "Xcode build service crashed. Retrying with fresh DerivedData."
+            ATTEMPT=$((ATTEMPT + 1))
+          done
 
       - name: Package unsigned IPAs
         if: success()
@@ -120,10 +193,12 @@ jobs:
 
             rm -rf "$staging"
             mkdir -p "$staging/Payload"
+
             cp -R "$app_path" "$staging/Payload/"
 
             (
               cd "$staging"
+
               /usr/bin/zip -qry \
                 "$GITHUB_WORKSPACE/build/ipas/$app_name-unsigned.ipa" \
                 Payload
@@ -136,7 +211,7 @@ jobs:
           package_app \
             "build/DerivedData-hurr1c4ne/Build/Products/Release-iphoneos/hurr1c4ne.app"
 
-      - name: Upload build logs and IPAs
+      - name: Upload diagnostics and IPAs
         if: always()
         uses: actions/upload-artifact@v4
         with:
