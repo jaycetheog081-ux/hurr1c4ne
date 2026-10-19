@@ -1,4 +1,4 @@
-import "RadixViewController.h"
+#import "RadixViewController.h"
 
 #import <UIKit/UIKit.h>
 #import <zlib.h>
@@ -65,6 +65,7 @@ typedef NS_ENUM(NSInteger, RXTab) {
 @property (nonatomic, strong) UIButton *refreshButton;
 @property (nonatomic, strong) UISearchBar *searchBar;
 @property (nonatomic, strong) UITableView *tableView;
+@property (nonatomic, strong) NSLayoutConstraint *tableTopConstraint;
 
 @property (nonatomic, strong) NSMutableArray<NSDictionary *> *sources;
 @property (nonatomic, strong) NSMutableArray<NSDictionary *> *packages;
@@ -290,9 +291,6 @@ typedef NS_ENUM(NSInteger, RXTab) {
     self.tableView.keyboardDismissMode = UIScrollViewKeyboardDismissModeOnDrag;
     self.tableView.contentInset = UIEdgeInsetsMake(4, 0, 12, 0);
 
-    [self.tableView registerClass:[UITableViewCell class]
-           forCellReuseIdentifier:@"RadixPackageCell"];
-
     [self.contentView addSubview:self.tableView];
 
     [NSLayoutConstraint activateConstraints:@[
@@ -306,7 +304,7 @@ typedef NS_ENUM(NSInteger, RXTab) {
         [self.searchBar.trailingAnchor constraintEqualToAnchor:self.contentView.trailingAnchor constant:-12.0],
         [self.searchBar.heightAnchor constraintEqualToConstant:52.0],
 
-        [self.tableView.topAnchor constraintEqualToAnchor:self.contentView.topAnchor],
+        (self.tableTopConstraint = [self.tableView.topAnchor constraintEqualToAnchor:self.contentView.topAnchor]),
         [self.tableView.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor],
         [self.tableView.trailingAnchor constraintEqualToAnchor:self.contentView.trailingAnchor],
         [self.tableView.bottomAnchor constraintEqualToAnchor:self.contentView.bottomAnchor]
@@ -354,8 +352,19 @@ typedef NS_ENUM(NSInteger, RXTab) {
         button.titleLabel.font = [UIFont systemFontOfSize:10.0 weight:UIFontWeightSemibold];
 
         UIImage *image = [UIImage systemImageNamed:symbols[index]];
-        [button setImage:image forState:UIControlStateNormal];
-        [button setTitle:titles[index] forState:UIControlStateNormal];
+        if (@available(iOS 15.0, *)) {
+            UIButtonConfiguration *configuration = [UIButtonConfiguration plainButtonConfiguration];
+            configuration.image = image;
+            configuration.title = titles[index];
+            configuration.imagePlacement = NSDirectionalRectEdgeTop;
+            configuration.imagePadding = 4.0;
+            configuration.contentInsets = NSDirectionalEdgeInsetsMake(5.0, 2.0, 3.0, 2.0);
+            configuration.baseForegroundColor = RXSecondaryTextColor();
+            button.configuration = configuration;
+        } else {
+            [button setImage:image forState:UIControlStateNormal];
+            [button setTitle:titles[index] forState:UIControlStateNormal];
+        }
 
         button.titleLabel.textAlignment = NSTextAlignmentCenter;
         button.titleLabel.adjustsFontSizeToFitWidth = YES;
@@ -459,6 +468,7 @@ typedef NS_ENUM(NSInteger, RXTab) {
             break;
     }
 
+    self.tableTopConstraint.constant = self.searchBar.hidden ? 0.0 : 52.0;
     [self updateTableHeader];
     [self updateEmptyState];
     [self.tableView reloadData];
@@ -476,6 +486,11 @@ typedef NS_ENUM(NSInteger, RXTab) {
         button.tintColor = selected ? RXAccentColor() : RXSecondaryTextColor();
         [button setTitleColor:(selected ? RXAccentColor() : RXSecondaryTextColor())
                      forState:UIControlStateNormal];
+        if (@available(iOS 15.0, *)) {
+            UIButtonConfiguration *configuration = button.configuration;
+            configuration.baseForegroundColor = selected ? RXAccentColor() : RXSecondaryTextColor();
+            button.configuration = configuration;
+        }
 
         if (selected) {
             button.titleLabel.font = [UIFont systemFontOfSize:10.0
@@ -1694,8 +1709,11 @@ typedef NS_ENUM(NSInteger, RXTab) {
 
 - (UITableViewCell *)tableView:(UITableView *)tableView
          cellForRowAtIndexPath:(NSIndexPath *)indexPath {
-    UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:@"RadixPackageCell"
-                                                            forIndexPath:indexPath];
+    UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:@"RadixPackageCell"];
+    if (!cell) {
+        cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle
+                                      reuseIdentifier:@"RadixPackageCell"];
+    }
 
     cell.backgroundColor = RXBackgroundColor();
     cell.contentView.backgroundColor = RXBackgroundColor();
@@ -1705,12 +1723,6 @@ typedef NS_ENUM(NSInteger, RXTab) {
     cell.imageView.image = nil;
     cell.textLabel.text = nil;
     cell.detailTextLabel.text = nil;
-
-    // Use a subtitle-style cell so both the package title and description are visible.
-    if (cell.detailTextLabel == nil) {
-        cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle
-                                      reuseIdentifier:@"RadixPackageCell"];
-    }
 
     cell.backgroundColor = RXBackgroundColor();
     cell.textLabel.textColor = RXPrimaryTextColor();
